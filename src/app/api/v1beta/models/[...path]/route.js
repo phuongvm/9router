@@ -5,6 +5,7 @@ import {
   isValidApiKey,
   markAccountUnavailable,
 } from "@/sse/services/auth.js";
+import { shouldEnforceApiKey } from "@/sse/services/trustedApiPeer.js";
 import { getSettings } from "@/lib/localDb";
 import { PROVIDER_MODELS } from "@/shared/constants/models";
 import { GEMINI_NATIVE_TTS_FETCH_TIMEOUT_MS } from "open-sse/config/runtimeConfig.js";
@@ -179,7 +180,7 @@ function buildGeminiNativeUrl(requestUrl, model, action) {
 
 async function validateGeminiNativeClientKey(request) {
   const settings = await getSettings();
-  if (!settings.requireApiKey) return null;
+  if (!shouldEnforceApiKey(settings, request)) return null;
 
   const apiKey = extractGeminiClientApiKey(request);
   if (!apiKey) {

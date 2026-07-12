@@ -48,6 +48,8 @@ function request(pathname, headers = {}) {
 describe("dashboard guard public LLM API access", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.TRUSTED_API_CIDRS;
+    delete process.env.TRUSTED_API_HOSTS;
     mocks.getSettings.mockResolvedValue({ requireLogin: true });
     mocks.validateApiKey.mockResolvedValue(false);
     mocks.getConsistentMachineId.mockResolvedValue("cli-token");
@@ -69,6 +71,30 @@ describe("dashboard guard public LLM API access", () => {
 
     expect(response.status).toBe(401);
     expect(response.body.error).toBe("API key required for remote API access");
+  });
+
+  it("allows trusted Docker bridge peer for public LLM API without API key", async () => {
+    process.env.TRUSTED_API_CIDRS = "172.20.0.0/16";
+
+    const response = await proxy(request("/v1/chat/completions", {
+      host: "9router:20128",
+      "x-9r-real-ip": "172.20.0.24",
+    }));
+
+    expect(response).toBe(mocks.nextResponse);
+    expect(mocks.validateApiKey).not.toHaveBeenCalled();
+  });
+
+  it("does not let trusted Docker bridge peer access local-only routes", async () => {
+    process.env.TRUSTED_API_CIDRS = "172.20.0.0/16";
+
+    const response = await proxy(request("/api/headroom/start", {
+      host: "9router:20128",
+      "x-9r-real-ip": "172.20.0.24",
+    }));
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toBe("Local only: CLI token required");
   });
 
   it("allows loopback peer IP regardless of Host", async () => {

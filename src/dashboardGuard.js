@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSettings, validateApiKey } from "@/lib/localDb";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { verifyDashboardAuthToken } from "@/lib/auth/dashboardSession";
+import { isTrustedApiPeer } from "./sse/services/trustedApiPeer.js";
 
 const CLI_TOKEN_HEADER = "x-9r-cli-token";
 const CLI_TOKEN_SALT = "9r-cli-auth";
@@ -135,6 +136,7 @@ async function hasValidApiKey(request) {
 
 async function canAccessPublicLlmApi(request) {
   if (isLocalRequest(request)) return true;
+  if (isTrustedApiPeer(request)) return true;
   if (await hasValidCliToken(request)) return true;
   return await hasValidApiKey(request);
 }
@@ -174,6 +176,7 @@ function isPublicApi(pathname) {
 
 export const __test__ = {
   isLocalRequest,
+  isTrustedApiPeer,
   isPublicLlmApi,
   extractApiKey,
   canAccessPublicLlmApi,
