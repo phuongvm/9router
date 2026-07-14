@@ -9,6 +9,15 @@ const cache = { token: null, tokenTime: 0 };
 let _voicesCache = null;
 let _voicesCacheTime = 0;
 
+function escapeXmlText(text) {
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
 async function getToken() {
   const now = Date.now();
   if (cache.token && now - cache.tokenTime < REFRESH_MS) return cache.token;
@@ -30,7 +39,7 @@ async function ttsRequest(text, voiceId, token) {
   const parts = voiceId.split("-");
   const xmlLang = parts.slice(0, 2).join("-");
   const gender = voiceId.toLowerCase().includes("male") ? "Male" : "Female";
-  const ssml = `<speak version='1.0' xml:lang='${xmlLang}'><voice xml:lang='${xmlLang}' xml:gender='${gender}' name='${voiceId}'><prosody rate='0.00%'>${text}</prosody></voice></speak>`;
+  const ssml = `<speak version='1.0' xml:lang='${xmlLang}'><voice xml:lang='${xmlLang}' xml:gender='${gender}' name='${voiceId}'><prosody rate='0.00%'>${escapeXmlText(text)}</prosody></voice></speak>`;
   const body = new URLSearchParams();
   body.append("ssml", ssml);
   body.append("token", token.token);

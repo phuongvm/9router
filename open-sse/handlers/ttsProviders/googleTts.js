@@ -46,9 +46,25 @@ export default {
     });
     if (!res.ok) throw new Error(`Google TTS failed: ${res.status}`);
     const data = await res.text();
-    const split = JSON.parse(data.split("\n")[3]);
-    const base64 = JSON.parse(split[0][2])[0];
-    if (!base64 || base64.length < 100) throw new Error("Google TTS returned empty audio");
+    // Google batchexecute response is multi-line; the audio payload line
+    // is not always at index 3. Search all lines for parseable JSON that
+    // contains a nested array with a base64 audio string.
+    const lines = data.split("\n");
+    let base64 = null;
+    for (const line of lines) {
+      if (!line.startsWith("[")) continue;
+      try {
+        const parsed = JSON.parse(line);
+        const inner = parsed?.[0]?.[2];
+        if (!inner) continue;
+        const audio = JSON.parse(inner)?.[0];
+        if (audio && typeof audio === "string" && audio.length > 100) {
+          base64 = audio;
+          break;
+        }
+      } catch { /* not the right line, keep searching */ }
+    }
+    if (!base64) throw new Error("Google TTS returned empty audio");
     return { base64, format: "mp3" };
   },
 };
