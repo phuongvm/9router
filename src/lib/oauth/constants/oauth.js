@@ -117,6 +117,9 @@ export const GITLAB_CONFIG = { ...PROVIDER_OAUTH["gitlab"] };
 // CodeBuddy (Tencent) OAuth Configuration (Browser OAuth Polling Flow)
 export const CODEBUDDY_CONFIG = { ...PROVIDER_OAUTH["codebuddy-cn"] };
 
+// Nous Research OAuth Configuration (Authorization Code Flow with PKCE)
+export const NOUS_CONFIG = { ...PROVIDER_OAUTH["nous"] };
+
 // Kimchi OAuth Configuration (Browser token callback flow)
 export const KIMCHI_CONFIG = { ...PROVIDER_OAUTH["kimchi"] };
 
@@ -149,4 +152,5 @@ export const PROVIDERS = {
   CODEBUDDY: "codebuddy-cn",
   KIMCHI: "kimchi",
   GROK_CLI: "grok-cli",
+  NOUS: "nous",
 };

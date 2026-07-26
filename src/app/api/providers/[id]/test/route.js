@@ -8,7 +8,25 @@ export async function POST(request, { params }) {
     const result = await testSingleConnection(id);
 
     if (result.error === "Connection not found") {
-      return NextResponse.json({ error: "Connection not found" }, { status: 404 });
+      return NextResponse.json({ valid: false, error: "Connection not found" }, { status: 404 });
+    }
+
+    if (result.error === "Provider test not supported") {
+      return NextResponse.json(
+        { valid: false, error: "Provider test not supported", refreshed: false },
+        { status: 501 }
+      );
+    }
+
+    if (!result.valid) {
+      return NextResponse.json(
+        {
+          valid: false,
+          error: result.error || "Connection test failed",
+          refreshed: result.refreshed || false,
+        },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json({
@@ -18,6 +36,6 @@ export async function POST(request, { params }) {
     });
   } catch (error) {
     console.log("Error testing connection:", error);
-    return NextResponse.json({ error: "Test failed" }, { status: 500 });
+    return NextResponse.json({ valid: false, error: "Test failed" }, { status: 500 });
   }
 }

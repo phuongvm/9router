@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { FILTERS } from "./filters.js";
+import { getProviderConnections } from "@/models";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,18 @@ export async function GET(request) {
   }
 
   try {
-    const res = await fetch(url);
+    const fetchHeaders = {};
+    if (type === "nous" || url.includes("nousresearch")) {
+      try {
+        const conns = await getProviderConnections("nous");
+        const activeConn = conns?.find((c) => c.isActive && c.accessToken);
+        if (activeConn?.accessToken) {
+          fetchHeaders["Authorization"] = `Bearer ${activeConn.accessToken}`;
+        }
+      } catch {}
+    }
+
+    const res = await fetch(url, { headers: fetchHeaders });
     if (!res.ok) {
       return NextResponse.json({ data: [] });
     }

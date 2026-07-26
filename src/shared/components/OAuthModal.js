@@ -167,6 +167,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
         "codebuddy-cn",
         "qoder",
         "grok-cli",
+        "nous",
       ];
       if (deviceCodeProviders.includes(provider)) {
         setIsDeviceCode(true);
@@ -639,15 +640,15 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
                     onClick={() => copy(deviceLoginUrl, "login_url")}
                     disabled={!deviceLoginUrl}
                   />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    icon="open_in_new"
-                    onClick={() => window.open(deviceLoginUrl, "_blank", "noopener,noreferrer")}
-                    disabled={!deviceLoginUrl}
+                  <a
+                    href={deviceLoginUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                   >
-                    Open
-                  </Button>
+                    <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+                    Open in New Tab
+                  </a>
                 </div>
               </div>
               <div className="bg-primary/10 p-4 rounded-lg">

@@ -13,7 +13,8 @@ const proxyClientMaxBodySize = process.env.NINEROUTER_PROXY_CLIENT_MAX_BODY_SIZE
 const nextConfig = {
   distDir: process.env.NEXT_DIST_DIR || ".next",
   output: "standalone",
-  serverExternalPackages: ["better-sqlite3", "sql.js", "node:sqlite", "bun:sqlite"],
+  // By omitting bun:sqlite and node:assert/async_hooks, we tell Webpack to let Node handle them natively
+  serverExternalPackages: ["better-sqlite3", "sql.js", "node:sqlite", "bun:sqlite", "node:assert", "node:async_hooks", "node:buffer", "node:child_process", "node:cluster", "node:crypto", "node:dgram", "node:diagnostics_channel", "node:dns", "node:domain", "node:events", "node:fs", "node:http", "node:http2", "node:https", "node:inspector", "node:module", "node:net", "node:os", "node:path", "node:perf_hooks", "node:process", "node:punycode", "node:querystring", "node:readline", "node:repl", "node:stream", "node:string_decoder", "node:sys", "node:timers", "node:tls", "node:trace_events", "node:tty", "node:url", "node:util", "node:v8", "node:vm", "node:wasi", "node:worker_threads", "node:zlib"],
   turbopack: {
     root: tracingRoot
   },

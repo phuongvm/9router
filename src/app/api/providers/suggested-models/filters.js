@@ -23,4 +23,13 @@ export const FILTERS = {
     (Array.isArray(models) ? models : [])
       .filter((m) => m.id?.startsWith("mimo") || m.name?.toLowerCase().includes("mimo"))
       .map((m) => ({ id: m.id, name: m.name || m.id })),
+
+  "nous": (models) =>
+    (Array.isArray(models) ? models : [])
+      .map((m) => ({
+        id: m.id,
+        name: m.id,
+        contextLength: m.context_length || 128000,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
 };

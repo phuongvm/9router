@@ -127,6 +127,13 @@ const OAUTH_TEST_CONFIG = {
       402: "Connected, but Grok Build credits are exhausted (spending limit). Add credits or upgrade SuperGrok.",
     },
   },
+  nous: {
+    url: "https://portal.nousresearch.com/api/oauth/account",
+    method: "GET",
+    authHeader: "Authorization",
+    authPrefix: "Bearer ",
+    refreshable: true,
+  },
 };
 
 /**

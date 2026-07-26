@@ -242,7 +242,7 @@ export async function POST(request, { params }) {
       }
 
       // Cline and ClinePass use authorization_code without PKCE. Kimchi returns a browser token.
-      const noPkceExchangeProviders = ["cline", "clinepass", "kimchi"];
+      const noPkceExchangeProviders = ["cline", "clinepass", "kimchi", "nous"];
       if (!code || !redirectUri || (!codeVerifier && !noPkceExchangeProviders.includes(provider))) {
         return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
       }
@@ -280,7 +280,7 @@ export async function POST(request, { params }) {
       }
 
       // Providers that don't use PKCE for device code
-      const noPkceProviders = ["github", "kimi", "kimi-coding", "kilocode", "codebuddy-cn"];
+      const noPkceProviders = ["github", "kimi", "kimi-coding", "kilocode", "codebuddy-cn", "nous"];
       let result;
       if (noPkceProviders.includes(provider)) {
         // kimi needs extraData._kimiDeviceId for stable X-Msh-Device-Id (CLIProxyAPI parity)
