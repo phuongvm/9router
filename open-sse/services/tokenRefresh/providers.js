@@ -31,6 +31,33 @@ export async function refreshXaiToken(refreshToken, log) {
   }, log);
 }
 
+export async function refreshNousToken(refreshToken, log) {
+  if (!refreshToken) return null;
+  return dedupRefresh("nous", refreshToken, async () => {
+    try {
+      const res = await fetch("https://portal.nousresearch.com/api/oauth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+          client_id: "hermes-cli",
+        }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token || refreshToken,
+        expiresIn: data.expires_in,
+      };
+    } catch (e) {
+      log?.warn?.("TOKEN_REFRESH", `nous refresh failed: ${e?.message || e}`);
+      return null;
+    }
+  }, log);
+}
+
 export async function refreshAccessToken(provider, refreshToken, credentials, log) {
   const config = PROVIDERS[provider];
 

@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import PropTypes from "prop-types";
 import { Card, Button, Modal } from "@/shared/components";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
-import { getProviderAlias } from "@/shared/constants/providers";
+import { AI_PROVIDERS, getProviderAlias } from "@/shared/constants/providers";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 
 // ── ModelRow ───────────────────────────────────────────────────
@@ -108,7 +108,7 @@ AddCustomModelModal.propTypes = {
 // ── ModelsCard ─────────────────────────────────────────────────
 // Self-contained card: shows models for a provider, filtered by optional `kindFilter`.
 // kindFilter: if provided, only shows models with matching type/kinds field.
-export default function ModelsCard({ providerId, kindFilter, providerAliasOverride }) {
+export default function ModelsCard({ providerId, kindFilter, providerAliasOverride, onModelsChange }) {
   const { copied, copy } = useCopyToClipboard();
   const [modelAliases, setModelAliases] = useState({});
   const [customModels, setCustomModels] = useState([]);
@@ -116,6 +116,9 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
   const [testingModelId, setTestingModelId] = useState(null);
   const [testError, setTestError] = useState("");
   const [showAddCustomModel, setShowAddCustomModel] = useState(false);
+  const [suggestedModels, setSuggestedModels] = useState([]);
+  const [isLoadingSuggested, setIsLoadingSuggested] = useState(false);
+  const [suggestedError, setSuggestedError] = useState("");
 
   const providerAlias = providerAliasOverride || getProviderAlias(providerId);
   const effectiveType = kindFilter || "llm";
@@ -133,7 +136,43 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
     } catch (e) { console.log("ModelsCard fetch error:", e); }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (!cancelled) fetchData();
+    });
+    return () => { cancelled = true; };
+  }, [fetchData]);
+
+  useEffect(() => {
+    const fetcher = AI_PROVIDERS[providerId]?.modelsFetcher;
+    if (!fetcher?.url || !fetcher?.type) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadSuggestedModels = async () => {
+      setIsLoadingSuggested(true);
+      setSuggestedError("");
+      try {
+        const params = new URLSearchParams({ url: fetcher.url, type: fetcher.type });
+        const res = await fetch(`/api/providers/suggested-models?${params}`, { cache: "no-store" });
+        const payload = await res.json();
+        if (!res.ok) throw new Error(payload.error || "Failed to load model catalog");
+        if (!cancelled) setSuggestedModels(payload.data || []);
+      } catch (error) {
+        if (!cancelled) {
+          setSuggestedModels([]);
+          setSuggestedError(error?.message || "Failed to load model catalog");
+        }
+      } finally {
+        if (!cancelled) setIsLoadingSuggested(false);
+      }
+    };
+
+    loadSuggestedModels();
+    return () => { cancelled = true; };
+  }, [providerId]);
 
   const handleSetAlias = async (modelId, alias) => {
     const fullModel = `${providerAlias}/${modelId}`;
@@ -198,13 +237,29 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
   };
 
   // Built-in models — filter by kindFilter if provided
-  const allBuiltIn = getModelsByProviderId(providerId);
-  const builtInModels = kindFilter
-    ? allBuiltIn.filter((m) => {
-        if (m.kinds) return m.kinds.includes(kindFilter);
-        return getModelKind(m, "llm") === kindFilter;
-      })
-    : allBuiltIn;
+  const builtInModels = useMemo(() => {
+    const allBuiltIn = getModelsByProviderId(providerId);
+    return kindFilter
+      ? allBuiltIn.filter((m) => {
+          if (m.kinds) return m.kinds.includes(kindFilter);
+          return getModelKind(m, "llm") === kindFilter;
+        })
+      : allBuiltIn;
+  }, [providerId, kindFilter]);
+
+  const displayModels = useMemo(() => {
+    const matchingSuggestedModels = kindFilter
+      ? suggestedModels.filter((model) => getModelKind(model, "llm") === kindFilter)
+      : suggestedModels;
+    const dynamicModels = matchingSuggestedModels.filter(
+      (model) => !builtInModels.some((builtIn) => builtIn.id === model.id)
+    );
+    return [...builtInModels, ...dynamicModels];
+  }, [builtInModels, kindFilter, suggestedModels]);
+
+  useEffect(() => {
+    onModelsChange?.(displayModels);
+  }, [displayModels, onModelsChange]);
 
   // Custom models for this provider + kind, dedupe vs built-in
   const myCustomModels = customModels.filter(
@@ -213,8 +268,6 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
       && !builtInModels.some((b) => b.id === m.id)
   );
 
-  const displayModels = builtInModels;
-
   return (
     <>
       <Card>
@@ -222,6 +275,8 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
           <h2 className="text-lg font-semibold">Models{kindFilter ? ` — ${kindFilter.toUpperCase()}` : ""}</h2>
         </div>
         {testError && <p className="text-xs text-red-500 mb-3 break-words">{testError}</p>}
+        {suggestedError && <p className="text-xs text-red-500 mb-3 break-words">{suggestedError}</p>}
+        {isLoadingSuggested && <p className="text-xs text-text-muted mb-3">Loading models...</p>}
 
         <div className="flex flex-wrap gap-3">
           {displayModels.map((model) => {
@@ -287,4 +342,5 @@ ModelsCard.propTypes = {
   providerId: PropTypes.string.isRequired,
   kindFilter: PropTypes.string, // e.g. "tts", "embedding" — filters models shown
   providerAliasOverride: PropTypes.string, // override alias (e.g. for custom-embedding nodes using prefix)
+  onModelsChange: PropTypes.func,
 };

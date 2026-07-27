@@ -34,6 +34,7 @@ export default function MediaProviderDetailPage() {
   const [customNode, setCustomNode] = useState(null);
   const [customLoading, setCustomLoading] = useState(isCustom);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [availableModels, setAvailableModels] = useState([]);
 
   // Fetch custom node info from API for custom embedding nodes
   useEffect(() => {
@@ -168,6 +169,7 @@ export default function MediaProviderDetailPage() {
           providerId={id}
           kindFilter={kind}
           providerAliasOverride={isCustom ? customNode?.prefix : undefined}
+          onModelsChange={setAvailableModels}
         />
       )}
 
@@ -188,7 +190,11 @@ export default function MediaProviderDetailPage() {
 
       {/* Example — per kind */}
       {kind === "embedding" && (
-        <EmbeddingExampleCard providerId={id} customAlias={customNode?.prefix} />
+        <EmbeddingExampleCard
+          providerId={id}
+          customAlias={customNode?.prefix}
+          models={availableModels}
+        />
       )}
       {kind === "tts" && <TtsExampleCard providerId={id} />}
       {kind === "stt" && !isCustom && <SttExampleCard providerId={id} />}

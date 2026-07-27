@@ -24,14 +24,17 @@ export default {
     baseUrl: "https://inference-api.nousresearch.com/v1/chat/completions",
     format: "openai",
   },
+  serviceKinds: ["llm", "embedding"],
+  embeddingConfig: {
+    baseUrl: "https://inference-api.nousresearch.com/v1/embeddings",
+    authType: "oauth",
+    authHeader: "bearer",
+  },
   modelsFetcher: { url: "https://inference-api.nousresearch.com/v1/models", type: "nous" },
   passthroughModels: true,
   models: [
     { id: "nousresearch/hermes-4-70b", name: "Nous Hermes 4 70B" },
     { id: "nousresearch/hermes-4-405b", name: "Nous Hermes 4 405B" },
-    { id: "anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5" },
-    { id: "google/gemini-3.5-flash", name: "Gemini 3.5 Flash" },
-    { id: "deepseek/deepseek-v4-pro", name: "DeepSeek V4 Pro" },
   ],
   oauth: {
     clientId: "hermes-cli",

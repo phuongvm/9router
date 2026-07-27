@@ -13,6 +13,7 @@ import {
   refreshGitHubToken,
   refreshCopilotToken,
   refreshCodebuddyToken,
+  refreshNousToken,
   classifyOAuthRefreshError,
 } from "./tokenRefresh/providers.js";
 
@@ -29,6 +30,7 @@ export {
   refreshGitHubToken,
   refreshCopilotToken,
   refreshCodebuddyToken,
+  refreshNousToken,
   classifyOAuthRefreshError,
 };
 
@@ -141,7 +143,7 @@ const REFRESH_HANDLERS = {
   // Kimi Code OAuth (merged into id `kimi`); legacy id still routes here
   kimi: (c, log) => refreshKimiToken(c.refreshToken, c, log),
   "kimi-coding": (c, log) => refreshKimiToken(c.refreshToken, c, log),
-  nous: (c, log) => refreshAccessToken("nous", c.refreshToken, c, log),
+  nous: (c, log) => refreshNousToken(c.refreshToken, log),
   vertex: vertexRefreshHandler,
   "vertex-partner": vertexRefreshHandler
 };

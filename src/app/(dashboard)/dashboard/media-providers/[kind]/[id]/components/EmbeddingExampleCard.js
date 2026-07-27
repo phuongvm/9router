@@ -18,17 +18,20 @@ const DEFAULT_RESPONSE_EXAMPLE = `{
   "usage": { "prompt_tokens": 9, "total_tokens": 9 }
 }`;
 
-export function EmbeddingExampleCard({ providerId, customAlias }) {
+export function EmbeddingExampleCard({ providerId, customAlias, models = [] }) {
   const isCustom = isCustomEmbeddingProvider(providerId);
   const providerAlias = isCustom ? (customAlias || providerId) : getProviderAlias(providerId);
-  const embeddingModels = isCustom ? [] : getModelsByProviderId(providerId).filter((m) => getModelKind(m) === "embedding");
+  const staticModels = isCustom ? [] : getModelsByProviderId(providerId).filter((m) => getModelKind(m) === "embedding");
+  const embeddingModels = models.length > 0 ? models : staticModels;
 
   const [selectedModel, setSelectedModel] = useState(embeddingModels[0]?.id ?? "");
   const [input, setInput] = useState("The quick brown fox jumps over the lazy dog");
   const [dimensions, setDimensions] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [useTunnel, setUseTunnel] = useState(false);
-  const [localEndpoint, setLocalEndpoint] = useState("");
+  const [localEndpoint, setLocalEndpoint] = useState(() =>
+    typeof window === "undefined" ? "" : window.location.origin
+  );
   const [tunnelEndpoint, setTunnelEndpoint] = useState("");
   const [result, setResult] = useState(null);
   const [running, setRunning] = useState(false);
@@ -37,7 +40,6 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
   const { copied: copiedRes, copy: copyRes } = useCopyToClipboard();
 
   useEffect(() => {
-    setLocalEndpoint(window.location.origin);
     fetch("/api/keys")
       .then((r) => r.json())
       .then((d) => { setApiKey((d.keys || []).find((k) => k.isActive !== false)?.key || ""); })
@@ -49,7 +51,8 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
   }, []);
 
   const endpoint = useTunnel ? tunnelEndpoint : localEndpoint;
-  const modelFull = selectedModel ? `${providerAlias}/${selectedModel}` : "";
+  const effectiveSelectedModel = selectedModel || embeddingModels[0]?.id || "";
+  const modelFull = effectiveSelectedModel ? `${providerAlias}/${effectiveSelectedModel}` : "";
 
   // Build request body — include dimensions only if user provided a positive number
   const buildBody = () => {
@@ -112,14 +115,14 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
         <Row label="Model">
           {isCustom ? (
             <input
-              value={selectedModel}
+              value={effectiveSelectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
               placeholder="e.g. voyage-3, embed-english-v3.0, text-embedding-3-small"
               className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary font-mono"
             />
           ) : (
             <select
-              value={selectedModel}
+              value={effectiveSelectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
               className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
             >
