@@ -47,17 +47,19 @@ describe("Gemini Cloud Code endpoint isolation", () => {
     removeConnection(connectionId);
   });
 
-  it("uses the daily cloudcode host for Antigravity", async () => {
+  it("uses the prod cloudcode host for Antigravity discovery but daily for chat", async () => {
     const connectionId = "antigravity-endpoint-test";
     const fetchMock = vi.fn(async () => cloudCodeResponse("antigravity-project"));
     vi.stubGlobal("fetch", fetchMock);
 
     await getProjectIdForConnection(connectionId, "token", "antigravity");
 
+    // Discovery (loadCodeAssist) on PROD — daily host rejects auth/onboarding calls.
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+      "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
       expect.objectContaining({ method: "POST" })
     );
+    // Chat transport still uses the daily host to bypass prod 429.
     expect(antigravity.transport.baseUrls).toEqual(["https://daily-cloudcode-pa.googleapis.com"]);
     removeConnection(connectionId);
   });

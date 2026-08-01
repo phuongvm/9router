@@ -140,9 +140,12 @@ export const CLOUD_CODE_API = {
     loadCodeAssist: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
     onboardUser: "https://cloudcode-pa.googleapis.com/v1internal:onboardUser",
   },
+  // Project discovery (loadCodeAssist/onboardUser) stays on PROD — the daily host
+  // rejects these auth/onboarding calls. Only chat traffic uses the daily host
+  // (see transport.apiEndpoint in registry/antigravity.js, set to bypass prod 429).
   antigravity: {
-    loadCodeAssist: "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
-    onboardUser: "https://daily-cloudcode-pa.googleapis.com/v1internal:onboardUser",
+    loadCodeAssist: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+    onboardUser: "https://cloudcode-pa.googleapis.com/v1internal:onboardUser",
   },
 };
 
