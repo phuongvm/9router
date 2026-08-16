@@ -13,8 +13,14 @@ const proxyClientMaxBodySize = process.env.NINEROUTER_PROXY_CLIENT_MAX_BODY_SIZE
 const nextConfig = {
   distDir: process.env.NEXT_DIST_DIR || ".next",
   output: "standalone",
-  // By omitting bun:sqlite and node:assert/async_hooks, we tell Webpack to let Node handle them natively
-  serverExternalPackages: ["better-sqlite3", "sql.js", "node:sqlite", "bun:sqlite", "node:assert", "node:async_hooks", "node:buffer", "node:child_process", "node:cluster", "node:crypto", "node:dgram", "node:diagnostics_channel", "node:dns", "node:domain", "node:events", "node:fs", "node:http", "node:http2", "node:https", "node:inspector", "node:module", "node:net", "node:os", "node:path", "node:perf_hooks", "node:process", "node:punycode", "node:querystring", "node:readline", "node:repl", "node:stream", "node:string_decoder", "node:sys", "node:timers", "node:tls", "node:trace_events", "node:tty", "node:url", "node:util", "node:v8", "node:vm", "node:wasi", "node:worker_threads", "node:zlib"],
+  // `open` must stay external. It derives its own directory from `import.meta.url`, and
+  // webpack replaces that with the absolute path of the BUILD machine as a string literal.
+  // A release built on macOS therefore ships `file:///Users/.../open/index.js`, which
+  // `fileURLToPath` rejects on Windows ("File URL path must be absolute" — no drive
+  // letter). That throw happens at module scope, so every consumer of `open` dies on
+  // import — including xAI/Grok token refresh, which loads the OAuth service that imports
+  // it. Keeping it external preserves the real `import.meta.url` at runtime.
+  serverExternalPackages: ["better-sqlite3", "sql.js", "node:sqlite", "bun:sqlite", "open"],
   turbopack: {
     root: tracingRoot
   },

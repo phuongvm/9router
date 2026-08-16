@@ -6,7 +6,6 @@ import {
   refreshKimiToken,
   refreshClaudeOAuthToken,
   refreshGoogleToken,
-  refreshQwenToken,
   refreshCodexToken,
   refreshKiroToken,
   refreshIflowToken,
@@ -27,7 +26,6 @@ export {
   refreshKimiToken,
   refreshClaudeOAuthToken,
   refreshGoogleToken,
-  refreshQwenToken,
   refreshCodexToken,
   refreshKiroToken,
   refreshIflowToken,
@@ -139,7 +137,6 @@ const REFRESH_HANDLERS = {
   antigravity: (c, log) => refreshGoogleToken(c.refreshToken, PROVIDERS.antigravity.clientId, PROVIDERS.antigravity.clientSecret, log),
   claude: (c, log) => refreshClaudeOAuthToken(c.refreshToken, log),
   codex: (c, log) => refreshCodexToken(c.refreshToken, log),
-  qwen: (c, log) => refreshQwenToken(c.refreshToken, log),
   iflow: (c, log) => refreshIflowToken(c.refreshToken, log),
   github: (c, log) => refreshGitHubToken(c.refreshToken, log),
   kiro: (c, log) => refreshKiroToken(c.refreshToken, c.providerSpecificData, log),
@@ -208,7 +205,6 @@ export function formatProviderCredentials(provider, credentials, log) {
       };
 
     case "codex":
-    case "qwen":
     case "iflow":
     case "openai":
     case "openrouter":
