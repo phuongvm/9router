@@ -1,4 +1,4 @@
-export default {
+const nous = {
   id: "nous",
   priority: 250,
   alias: "nous",
@@ -43,3 +43,5 @@ export default {
     scope: "inference:invoke",
   },
 };
+
+export default nous;
