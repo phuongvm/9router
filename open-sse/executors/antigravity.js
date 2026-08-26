@@ -7,6 +7,7 @@ import { resolveSessionId } from "../utils/sessionManager.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { cleanJSONSchemaForAntigravity } from "../translator/formats/gemini.js";
 import { DEFAULT_THINKING_AG_SIGNATURE } from "../config/defaultThinkingSignature.js";
+import { sanitizeAntigravitySystemInstruction } from "../utils/antigravitySemanticIdentity.js";
 
 // Sanitize function name: Gemini requires [a-zA-Z_][a-zA-Z0-9_.:\-]{0,63}
 function sanitizeFunctionName(name) {
@@ -136,6 +137,11 @@ export class AntigravityExecutor extends BaseExecutor {
   transformRequest(model, body, stream, credentials) {
     const projectId = credentials?.projectId || this.generateProjectId();
 
+    body = {
+      ...body,
+      ...(body.request && { request: { ...body.request } }),
+    };
+
     // OpenAI clients may include stream_options even for non-streaming calls.
     // Google generateContent rejects that combination before processing the request.
     if (stream !== true) delete body.stream_options;
@@ -245,16 +251,11 @@ export class AntigravityExecutor extends BaseExecutor {
     // Strip tools/toolConfig (handled separately) and blacklisted fields that Google rejects
     const { tools: _originalTools, toolConfig: _originalToolConfig, ...requestWithoutTools } = body.request || {};
     stripBlacklisted(requestWithoutTools);
-    
-    // Rewrite competitive system prompts (e.g. Zed IDE's Claude prompt) to prevent Antigravity from 
-    // flagging the request and immediately blocking it with a 429 Quota Exhausted response.
-    if (requestWithoutTools.systemInstruction?.parts) {
-      const oldText = "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
-      for (const part of requestWithoutTools.systemInstruction.parts) {
-        if (typeof part.text === "string" && part.text.includes(oldText)) {
-          part.text = part.text.split(oldText).join("");
-        }
-      }
+
+    if (Object.hasOwn(requestWithoutTools, "systemInstruction")) {
+      requestWithoutTools.systemInstruction = sanitizeAntigravitySystemInstruction(
+        requestWithoutTools.systemInstruction
+      );
     }
 
     const generationConfig = { ...(requestWithoutTools.generationConfig || {}) };
