@@ -3,15 +3,12 @@ export async function register() {
     const { initConsoleLogCapture } = await import("@/lib/consoleLogBuffer");
     initConsoleLogCapture();
 
-    // Start proactive OAuth token refresh at server boot. The custom-server.js
-    // listening hook cannot run in the Docker standalone image (its raw dynamic
-    // import of src/sse/services/backgroundTokenRefresh.js misses traced-only
-    // relative imports), and the dashboard bootstrap only fires on an
-    // authenticated page render. instrumentation.js is bundled by webpack, so
-    // aliases resolve and deps are traced. The module is idempotent and
-    // skips itself during build phases (isNonServerRuntime).
-    import("@/sse/services/backgroundTokenRefresh.js")
-      .then(({ startBackgroundTokenRefresh }) => startBackgroundTokenRefresh())
-      .catch((e) => console.error("[Instrumentation] background token refresh start failed:", e?.message ?? e));
+    // Server-only: lets capabilities.js read the synced catalog without pulling
+    // node:fs into the dashboard's browser bundle.
+    const { installCatalogSource } = await import("open-sse/providers/catalogOverride.js");
+    await installCatalogSource();
+
+    const { startModelCatalogSync } = await import("@/lib/modelCatalog/sync.js");
+    startModelCatalogSync();
   }
 }
