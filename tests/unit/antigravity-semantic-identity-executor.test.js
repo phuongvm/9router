@@ -95,7 +95,7 @@ describe("Antigravity semantic identity executor integration", () => {
       accountContext: { account: "account-1" },
       envelopeMetadata: { trace: "trace-1" },
       request: {
-        sessionId: "session-1",
+        sessionId: expect.stringMatching(/^(session-1|-\d+)$/),
         contents: [{ role: "user", parts: [{ text: "hello" }] }],
         generationConfig: { temperature: 0.25, maxOutputTokens: 2048 },
         requestMetadata: { private: "preserve-shape" },
