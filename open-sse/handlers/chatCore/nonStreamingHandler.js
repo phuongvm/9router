@@ -46,8 +46,10 @@ function openAICompletionToClaudeMessage(responseBody) {
   if (content.length === 0) content.push({ type: "text", text: "" });
 
   const usage = responseBody.usage || {};
+  const rawId = String(responseBody.id || Date.now()).replace(/^chatcmpl-/, "");
+  const msgId = rawId.startsWith("msg_") ? rawId : `msg_${rawId}`;
   return {
-    id: String(responseBody.id || `msg_${Date.now()}`).replace(/^chatcmpl-/, ""),
+    id: msgId,
     type: "message",
     role: "assistant",
     model: responseBody.model || "unknown",
@@ -211,6 +213,12 @@ export function translateNonStreamingResponse(responseBody, targetFormat, source
         result.usage.completion_tokens_details = { reasoning_tokens: usage.thoughtsTokenCount };
       }
     }
+    if (sourceFormat === FORMATS.CLAUDE) {
+      return openAICompletionToClaudeMessage(result);
+    }
+    if (sourceFormat === FORMATS.OPENAI_RESPONSES) {
+      return openAICompletionToResponses(result, customToolNames);
+    }
     return result;
   }
 
@@ -267,12 +275,29 @@ export function translateNonStreamingResponse(responseBody, targetFormat, source
         total_tokens: (responseBody.usage.input_tokens || 0) + (responseBody.usage.output_tokens || 0)
       };
     }
+    if (sourceFormat === FORMATS.OPENAI_RESPONSES) {
+      return openAICompletionToResponses(result, customToolNames);
+    }
     return result;
   }
 
   // Ollama
   if (targetFormat === FORMATS.OLLAMA) {
-    return ollamaBodyToOpenAI(responseBody);
+    const result = ollamaBodyToOpenAI(responseBody);
+    if (sourceFormat === FORMATS.CLAUDE) {
+      return openAICompletionToClaudeMessage(result);
+    }
+    if (sourceFormat === FORMATS.OPENAI_RESPONSES) {
+      return openAICompletionToResponses(result, customToolNames);
+    }
+    return result;
+  }
+
+  if (sourceFormat === FORMATS.CLAUDE && responseBody?.choices) {
+    return openAICompletionToClaudeMessage(responseBody);
+  }
+  if (sourceFormat === FORMATS.OPENAI_RESPONSES && responseBody?.choices) {
+    return openAICompletionToResponses(responseBody, customToolNames);
   }
 
   return responseBody;
