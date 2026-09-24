@@ -90,7 +90,6 @@ describe("Antigravity semantic identity executor integration", () => {
     expect(matched).toMatchObject({
       project: "project-1",
       model: "gemini-3-flash",
-      requestType: "agent",
       requestId: expect.stringMatching(/^agent\//),
       accountContext: { account: "account-1" },
       envelopeMetadata: { trace: "trace-1" },

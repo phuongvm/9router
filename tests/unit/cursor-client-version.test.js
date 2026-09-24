@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import cursorProvider from "../../open-sse/providers/registry/cursor.js";
 import { buildCursorHeaders } from "../../open-sse/utils/cursorChecksum.js";
 
-const REQUIRED_CURSOR_CLIENT_VERSION = "3.9.16";
+const REQUIRED_CURSOR_CLIENT_VERSION = "3.12.17";
 
 describe("Cursor client version contract", () => {
   it("uses the supported client version in registry metadata and wire headers", () => {
