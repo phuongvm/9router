@@ -13,7 +13,7 @@ import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import * as log from "../utils/logger.js";
 import { checkAndRefreshToken } from "../services/tokenRefresh.js";
-import { saveRequestUsage } from "@/lib/usageDb.js";
+import { saveRequestUsage, saveRequestDetail } from "@/lib/usageDb.js";
 import { AI_PROVIDERS } from "@/shared/constants/providers.js";
 
 /**
@@ -90,6 +90,7 @@ export async function handleSystemone(request) {
   // noAuth providers (e.g. local laya) — no stored connection/credentials needed
   const resolvedProvider = AI_PROVIDERS[provider];
   if (resolvedProvider?.noAuth || resolvedProvider?.authType === "none") {
+    const start = Date.now();
     const result = await handleSystemoneCore({
       body,
       modelInfo: { provider, model },
@@ -97,16 +98,36 @@ export async function handleSystemone(request) {
       log,
     });
     if (result.success) {
-      if (result.usage) {
-        saveRequestUsage({
-          provider,
-          model,
-          promptTokens: result.usage.prompt_tokens,
-          completionTokens: result.usage.completion_tokens,
-          endpoint: url.pathname,
-          apiKey,
-        });
-      }
+      const latencyMs = Date.now() - start;
+      const prompt_tokens = result.usage?.prompt_tokens ?? result.usage?.input_tokens ?? (body?.state ? Math.max(1, Math.ceil(body.state.length / 4)) : 1);
+      const completion_tokens = result.usage?.completion_tokens ?? result.usage?.output_tokens ?? 0;
+      const tokens = {
+        prompt_tokens,
+        completion_tokens,
+        total_tokens: prompt_tokens + completion_tokens,
+      };
+
+      saveRequestUsage({
+        provider,
+        model,
+        apiKey,
+        endpoint: url.pathname,
+        tokens,
+        status: "success",
+      }).catch(() => {});
+
+      saveRequestDetail({
+        provider,
+        model,
+        apiKey,
+        timestamp: new Date().toISOString(),
+        latency: { ttft: latencyMs, total: latencyMs },
+        tokens,
+        request: body,
+        response: result.responseBody || {},
+        status: "success",
+      }).catch(() => {});
+
       return result.response;
     }
     return errorResponse(result.status || HTTP_STATUS.BAD_GATEWAY, result.error || "System One request failed");
@@ -139,6 +160,7 @@ export async function handleSystemone(request) {
     log.info("AUTH", `\x1b[32mUsing ${provider} account: ${credentials.connectionName}\x1b[0m`);
 
     const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
+    const start = Date.now();
 
     const result = await handleSystemoneCore({
       body,
@@ -151,20 +173,38 @@ export async function handleSystemone(request) {
     });
 
     if (result.success) {
-      if (result.usage) {
-        saveRequestUsage({
-          provider,
-          model,
-          connectionId: credentials.connectionId,
-          apiKey,
-          endpoint: url.pathname,
-          tokens: {
-            ...result.usage,
-            total_tokens: result.usage.prompt_tokens + result.usage.completion_tokens,
-          },
-          status: "success",
-        }).catch(() => {});
-      }
+      const latencyMs = Date.now() - start;
+      const prompt_tokens = result.usage?.prompt_tokens ?? result.usage?.input_tokens ?? (body?.state ? Math.max(1, Math.ceil(body.state.length / 4)) : 1);
+      const completion_tokens = result.usage?.completion_tokens ?? result.usage?.output_tokens ?? 0;
+      const tokens = {
+        prompt_tokens,
+        completion_tokens,
+        total_tokens: prompt_tokens + completion_tokens,
+      };
+
+      saveRequestUsage({
+        provider,
+        model,
+        connectionId: credentials.connectionId,
+        apiKey,
+        endpoint: url.pathname,
+        tokens,
+        status: "success",
+      }).catch(() => {});
+
+      saveRequestDetail({
+        provider,
+        model,
+        connectionId: credentials.connectionId,
+        apiKey,
+        timestamp: new Date().toISOString(),
+        latency: { ttft: latencyMs, total: latencyMs },
+        tokens,
+        request: body,
+        response: result.responseBody || {},
+        status: "success",
+      }).catch(() => {});
+
       return result.response;
     }
 

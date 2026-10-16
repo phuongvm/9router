@@ -117,11 +117,16 @@ export async function handleSystemoneCore({
   if (onRequestSuccess) await onRequestSuccess();
 
   const usage = responseBody?.usage;
+  const prompt_tokens = usage?.input_tokens ?? usage?.prompt_tokens ?? (body?.state ? Math.max(1, Math.ceil(body.state.length / 4)) : 1);
+  const completion_tokens = usage?.output_tokens ?? usage?.completion_tokens ?? 0;
   return {
     success: true,
-    usage: usage
-      ? { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0 }
-      : null,
+    responseBody,
+    usage: {
+      prompt_tokens,
+      completion_tokens,
+      total_tokens: prompt_tokens + completion_tokens,
+    },
     response: new Response(JSON.stringify(responseBody), {
       headers: {
         "Content-Type": "application/json",

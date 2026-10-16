@@ -219,15 +219,17 @@ export async function getActiveRequests() {
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
     .map((e) => {
       const t = e.tokens || {};
+      const promptTokens = t.prompt_tokens ?? t.input_tokens ?? e.promptTokens ?? 0;
+      const completionTokens = t.completion_tokens ?? t.output_tokens ?? e.completionTokens ?? 0;
       return {
         timestamp: e.timestamp, model: e.model, provider: e.provider || "",
-        promptTokens: t.prompt_tokens || t.input_tokens || 0,
-        completionTokens: t.completion_tokens || t.output_tokens || 0,
+        promptTokens,
+        completionTokens,
         status: e.status || "ok",
       };
     })
     .filter((e) => {
-      if (e.promptTokens === 0 && e.completionTokens === 0) return false;
+      if (e.promptTokens === 0 && e.completionTokens === 0 && !e.model) return false;
       const minute = e.timestamp ? e.timestamp.slice(0, 16) : "";
       const key = `${e.model}|${e.provider}|${e.promptTokens}|${e.completionTokens}|${minute}`;
       if (seen.has(key)) return false;
@@ -245,11 +247,16 @@ export async function saveRequestUsage(entry) {
     const db = await getAdapter();
 
     if (!entry.timestamp) entry.timestamp = new Date().toISOString();
-    entry.cost = await calculateCost(entry.provider, entry.model, entry.tokens);
 
-    const tokens = entry.tokens || {};
-    const promptTokens = tokens.prompt_tokens || tokens.input_tokens || 0;
-    const completionTokens = tokens.completion_tokens || tokens.output_tokens || 0;
+    const promptTokens = entry.tokens?.prompt_tokens ?? entry.tokens?.input_tokens ?? entry.promptTokens ?? 0;
+    const completionTokens = entry.tokens?.completion_tokens ?? entry.tokens?.output_tokens ?? entry.completionTokens ?? 0;
+    const tokens = entry.tokens || {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: promptTokens + completionTokens,
+    };
+    entry.tokens = tokens;
+    entry.cost = await calculateCost(entry.provider, entry.model, entry.tokens);
 
     let inserted = false;
 
@@ -373,21 +380,23 @@ export async function getUsageStats(period = "all") {
   }
 
   // recentRequests from live history (last 100 entries enough for 20 deduped)
-  const recentRows = db.all(`SELECT timestamp, provider, model, tokens, status FROM usageHistory ORDER BY id DESC LIMIT 100`);
+  const recentRows = db.all(`SELECT timestamp, provider, model, promptTokens, completionTokens, tokens, status FROM usageHistory ORDER BY id DESC LIMIT 100`);
   const seen = new Set();
   const recentRequests = recentRows
     .map((r) => {
       const t = parseJson(r.tokens, {}) || {};
+      const promptTokens = t.prompt_tokens ?? t.input_tokens ?? r.promptTokens ?? 0;
+      const completionTokens = t.completion_tokens ?? t.output_tokens ?? r.completionTokens ?? 0;
       return {
         timestamp: r.timestamp, model: r.model, provider: r.provider || "",
-        promptTokens: t.prompt_tokens || t.input_tokens || 0,
-        completionTokens: t.completion_tokens || t.output_tokens || 0,
+        promptTokens,
+        completionTokens,
         cachedTokens: t.cached_tokens || t.cache_read_input_tokens || 0,
         status: r.status || "ok",
       };
     })
     .filter((e) => {
-      if (e.promptTokens === 0 && e.completionTokens === 0) return false;
+      if (e.promptTokens === 0 && e.completionTokens === 0 && !e.model) return false;
       const minute = e.timestamp ? e.timestamp.slice(0, 16) : "";
       const key = `${e.model}|${e.provider}|${e.promptTokens}|${e.completionTokens}|${minute}`;
       if (seen.has(key)) return false;

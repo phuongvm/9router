@@ -85,6 +85,11 @@ try {
   assert.strictEqual(res.success, true, "Failover request must succeed");
   assert.strictEqual(failoverTriggered, true, "Failover to opencode-zen must be called");
   assert.strictEqual(warningLogged, true, "Warning must be logged on failover");
+  assert.ok(res.responseBody, "Response body must be present");
+  assert.strictEqual(res.usage?.prompt_tokens, 15, "Prompt tokens must match");
+  assert.strictEqual(res.usage?.completion_tokens, 0, "Completion tokens must match");
+  assert.strictEqual(res.usage?.total_tokens, 15, "Total tokens must match");
+  console.log("✓ Verified responseBody and normalized usage { prompt_tokens, completion_tokens, total_tokens }");
   console.log("✓ Verified automated failover to opencode-zen on connection refusal");
 } finally {
   global.fetch = originalFetch;

@@ -57,3 +57,11 @@
 - Enhanced `open-sse/handlers/systemoneCore.js` with automated fallback to `opencode-zen` (`opencode/jev-1.13-free`) upon local connection failure.
 - Implemented and verified unit tests (`verify-laya-provider.mjs`, all assertions passed).
 - All 3 phases and 7 tasks in `tasks.md` complete, archived to `openspec/changes/archive/2026-10-16-integrate-laya-systemone-provider/`, and canonical spec created at `openspec/specs/laya-provider/spec.md`.
+
+## 2026-10-16 — System One Request Logging and Analytics Integration
+
+- [Leader] Completed OpenSpec proposal and implementation for `fix-systemone-usage-logs`.
+- Enhanced `open-sse/handlers/systemoneCore.js` to return `responseBody` and normalized `usage` object supporting both `input_tokens` and `prompt_tokens`.
+- Enhanced `src/sse/handlers/systemone.js` to measure latency, construct full `tokens` object, call `saveRequestUsage` with `tokens` and `status: "success"`, and invoke `saveRequestDetail` for both `noAuth` (Laya) and credentialed providers.
+- Hardened `src/lib/db/repos/usageRepo.js` with defensive fallback in `saveRequestUsage` and relaxed `recentRequests` filter so valid model requests are never dropped.
+- Archived change to `openspec/changes/archive/2026-10-16-fix-systemone-usage-logs/` with canonical spec at `openspec/specs/systemone-usage-logs/spec.md`.
