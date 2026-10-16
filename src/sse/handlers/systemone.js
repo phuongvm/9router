@@ -14,6 +14,7 @@ import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import * as log from "../utils/logger.js";
 import { checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { saveRequestUsage } from "@/lib/usageDb.js";
+import { AI_PROVIDERS } from "@/shared/constants/providers.js";
 
 /**
  * Handle System One (Jev) decision requests for the Next.js server.
@@ -84,6 +85,31 @@ export async function handleSystemone(request) {
     log.info("ROUTING", `${modelStr} → ${provider}/${model}`);
   } else {
     log.info("ROUTING", `Provider: ${provider}, Model: ${model}`);
+  }
+
+  // noAuth providers (e.g. local laya) — no stored connection/credentials needed
+  const resolvedProvider = AI_PROVIDERS[provider];
+  if (resolvedProvider?.noAuth || resolvedProvider?.authType === "none") {
+    const result = await handleSystemoneCore({
+      body,
+      modelInfo: { provider, model },
+      credentials: null,
+      log,
+    });
+    if (result.success) {
+      if (result.usage) {
+        saveRequestUsage({
+          provider,
+          model,
+          promptTokens: result.usage.prompt_tokens,
+          completionTokens: result.usage.completion_tokens,
+          endpoint: url.pathname,
+          apiKey,
+        });
+      }
+      return result.response;
+    }
+    return errorResponse(result.status || HTTP_STATUS.BAD_GATEWAY, result.error || "System One request failed");
   }
 
   // Credential + fallback loop (mirrors handleEmbeddings)
