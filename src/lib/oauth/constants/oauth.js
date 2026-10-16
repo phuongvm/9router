@@ -117,8 +117,6 @@ export const GITLAB_CONFIG = { ...PROVIDER_OAUTH["gitlab"] };
 // CodeBuddy (Tencent) OAuth Configuration (Browser OAuth Polling Flow)
 export const CODEBUDDY_CONFIG = { ...PROVIDER_OAUTH["codebuddy-cn"] };
 
-// Nous Research OAuth Configuration (Authorization Code Flow with PKCE)
-export const NOUS_CONFIG = { ...PROVIDER_OAUTH["nous"] };
 // CodeBuddy International — same shape as CN, .ai domain (mirror of codebuddy-cn).
 export const CODEBUDDY_INTL_CONFIG = { ...PROVIDER_OAUTH["codebuddy-intl"] };
 
@@ -226,6 +224,17 @@ export const ZED_HOSTED_CONFIG = {
   oauthTimeoutMs: 600_000,
 };
 
+// Nous Research Portal — OAuth 2.0 Device Code flow (RFC 8628) + agent key minting
+export const NOUS_CONFIG = {
+  clientId: "hermes-cli",
+  portalBaseUrl: "https://portal.nousresearch.com",
+  deviceCodeUrl: "https://portal.nousresearch.com/api/oauth/device/code",
+  tokenUrl: "https://portal.nousresearch.com/api/oauth/token",
+  agentKeyUrl: "https://portal.nousresearch.com/api/oauth/agent-key",
+  inferenceBaseUrl: "https://inference-api.nousresearch.com/v1",
+  scope: "inference:invoke inference:mint_agent_key",
+};
+
 // OAuth timeout (5 minutes)
 export const OAUTH_TIMEOUT = 300000;
 
@@ -257,4 +266,5 @@ export const PROVIDERS = {
   WINDSURF: "windsurf",
   GLM: "glm",
   ZED: "zed",
+  NOUS: "nous",
 };

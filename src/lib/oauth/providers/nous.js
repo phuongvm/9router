@@ -1,7 +1,4 @@
 import { NOUS_CONFIG } from "../constants/oauth.js";
-import { extractEmailFromAccessToken } from "../providerHelpers.js";
-
-// Nous Research - OAuth Device Code Flow (Matching 9Router Device Code Contract)
 const nous = {
   config: NOUS_CONFIG,
   flowType: "device_code",
@@ -20,7 +17,7 @@ const nous = {
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`Device code request failed: ${error}`);
+      throw new Error(`Nous device code request failed: ${error}`);
     }
 
     const data = await response.json();
@@ -51,10 +48,16 @@ const nous = {
       }),
     });
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      const text = await response.text().catch(() => "");
+      data = { error: "invalid_response", error_description: text };
+    }
 
-    if (response.ok && data.access_token) {
-      // Best-effort profile fetch to get user email (e.g. vmphuongit@gmail.com) for connection name
+    if (response.ok && data?.access_token) {
+      // Best-effort profile fetch to get user email (e.g. user@nousresearch.com) for connection name
       let userEmail = null;
       try {
         const accountRes = await fetch("https://portal.nousresearch.com/api/oauth/account", {
@@ -75,34 +78,65 @@ const nous = {
       };
     }
 
-    if (data.error === "authorization_pending" || data.error === "slow_down") {
-      return { ok: false, data: { error: "authorization_pending" } };
-    }
-
+    const pending =
+      data?.error === "authorization_pending" ||
+      data?.error === "slow_down";
     return {
-      ok: false,
-      data: {
-        error: data.error || "poll_failed",
-        error_description: data.error_description || "Authorization failed",
-      },
+      ok: response.ok || pending,
+      data,
     };
   },
-  mapTokens: (tokens) => {
+  postExchange: async (tokens) => {
+    try {
+      const response = await fetch(NOUS_CONFIG.agentKeyUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${tokens.access_token}`,
+        },
+        body: JSON.stringify({
+          min_ttl_seconds: 7200,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text().catch(() => "");
+        console.warn(`[oauth] Nous agent key mint failed (${response.status}): ${error}`);
+        return { agentKey: null };
+      }
+
+      const data = await response.json();
+      return {
+        agentKey: data.api_key || null,
+        agentKeyId: data.key_id || null,
+        agentKeyExpiresAt: data.expires_at || null,
+        agentKeyExpiresIn: data.expires_in || null,
+      };
+    } catch (err) {
+      console.warn(`[oauth] Nous agent key mint error: ${err?.message || err}`);
+      return { agentKey: null };
+    }
+  },
+  mapTokens: (tokens, extra) => {
     const email =
       tokens._userEmail ||
       tokens.email ||
       tokens.user_email ||
       tokens.user?.email ||
-      extractEmailFromAccessToken(tokens.access_token) ||
-      extractEmailFromAccessToken(tokens.id_token) ||
       null;
     return {
       accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token || "",
-      expiresIn: tokens.expires_in || 86400,
+      refreshToken: tokens.refresh_token,
+      expiresIn: tokens.expires_in,
       scope: tokens.scope,
-      email: email,
-      providerSpecificData: {},
+      email,
+      apiKey: extra?.agentKey || tokens.access_token,
+      providerSpecificData: {
+        inferenceBaseUrl: NOUS_CONFIG.inferenceBaseUrl,
+        ...(extra?.agentKeyId ? { agentKeyId: extra.agentKeyId } : {}),
+        ...(extra?.agentKeyExpiresAt ? { agentKeyExpiresAt: extra.agentKeyExpiresAt } : {}),
+      },
     };
   },
 };

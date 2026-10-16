@@ -22,7 +22,7 @@ export async function GET(request) {
 
   const configuredFetcher = Object.values(AI_PROVIDERS)
     .map((provider) => provider.modelsFetcher)
-    .find((fetcher) => fetcher?.type === type && fetcher?.url === url);
+    .find((fetcher) => (fetcher?.type === type || (fetcher?.type === "nous-free" && type === "nous")) && fetcher?.url === url);
   if (!configuredFetcher) {
     return NextResponse.json({ error: "Model catalog is not configured" }, { status: 400 });
   }
