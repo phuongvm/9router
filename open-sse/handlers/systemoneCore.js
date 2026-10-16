@@ -75,12 +75,32 @@ export async function handleSystemoneCore({
         : {}),
     });
   } catch (error) {
+    if (provider === "laya") {
+      log?.warn?.("SYSTEMONE", `Local Laya unreachable at ${targetUrl} (${error.message}). Failing over to opencode-zen/jev-1.13-free`);
+      return handleSystemoneCore({
+        body: { ...body, model: "jev-1.13-free" },
+        modelInfo: { provider: "opencode-zen", model: "jev-1.13-free" },
+        credentials: { accessToken: "public" },
+        log,
+        onRequestSuccess,
+      });
+    }
     const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
     log?.debug?.("SYSTEMONE", `Fetch error: ${errMsg}`);
     return createErrorResult(HTTP_STATUS.BAD_GATEWAY, errMsg);
   }
 
   if (!providerResponse.ok) {
+    if (provider === "laya" && [502, 503, 504].includes(providerResponse.status)) {
+      log?.warn?.("SYSTEMONE", `Local Laya returned status ${providerResponse.status}. Failing over to opencode-zen/jev-1.13-free`);
+      return handleSystemoneCore({
+        body: { ...body, model: "jev-1.13-free" },
+        modelInfo: { provider: "opencode-zen", model: "jev-1.13-free" },
+        credentials: { accessToken: "public" },
+        log,
+        onRequestSuccess,
+      });
+    }
     const { statusCode, message } = await parseUpstreamError(providerResponse);
     const errMsg = formatProviderError(new Error(message), provider, model, statusCode);
     log?.debug?.("SYSTEMONE", `Provider error: ${errMsg}`);
