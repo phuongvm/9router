@@ -266,5 +266,4 @@ export const PROVIDERS = {
   WINDSURF: "windsurf",
   GLM: "glm",
   ZED: "zed",
-  NOUS: "nous",
 };

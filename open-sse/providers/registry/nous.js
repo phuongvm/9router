@@ -2,6 +2,7 @@ import {
   NOUS_AGENT_KEY_URL,
   NOUS_CHAT_COMPLETIONS_URL,
   NOUS_DEVICE_CODE_URL,
+  NOUS_INFERENCE_BASE_URL,
   NOUS_MODELS_URL,
   NOUS_OAUTH_CLIENT_ID,
   NOUS_OAUTH_SCOPE,
@@ -11,7 +12,7 @@ import {
 
 const nous = {
   id: "nous",
-  priority: 65,
+  priority: 250,
   hasFree: true,
   alias: "nous",
   aliases: ["nous-portal", "nous-research", "ns"],
@@ -99,7 +100,12 @@ const nous = {
       maxOutputTokens: 131072,
     },
   ],
-  serviceKinds: ["llm", "imageToText"],
+  serviceKinds: ["llm", "imageToText", "embedding"],
+  embeddingConfig: {
+    baseUrl: `${NOUS_INFERENCE_BASE_URL}/embeddings`,
+    authType: "oauth",
+    authHeader: "bearer",
+  },
   modelsFetcher: { url: NOUS_MODELS_URL, type: "nous-free" },
   passthroughModels: true,
 };
