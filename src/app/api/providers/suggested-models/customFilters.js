@@ -19,7 +19,7 @@ export const CUSTOM_FILTERS = {
           m.kind === "image" ||
           m.type === "image" ||
           outputMods.includes("image") ||
-          modality.includes("image");
+          (modality.includes("->") && modality.split("->")[1].includes("image"));
 
         let kind = "llm";
         if (isEmbedding) {

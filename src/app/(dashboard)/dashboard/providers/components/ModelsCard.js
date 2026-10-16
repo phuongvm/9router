@@ -155,7 +155,8 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
       setIsLoadingSuggested(true);
       setSuggestedError("");
       try {
-        const params = new URLSearchParams({ url: fetcher.url, type: fetcher.type });
+        const fetcherType = (providerId === "nous" || fetcher.url?.includes("nousresearch")) ? "nous" : fetcher.type;
+        const params = new URLSearchParams({ url: fetcher.url, type: fetcherType });
         const res = await fetch(`/api/providers/suggested-models?${params}`, { cache: "no-store" });
         const payload = await res.json();
         if (!res.ok) throw new Error(payload.error || "Failed to load model catalog");
