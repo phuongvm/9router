@@ -160,6 +160,21 @@ export class AntigravityExecutor extends BaseExecutor {
     return `${baseUrl}/v1internal:${action}`;
   }
 
+  async execute(options) {
+    let result = await super.execute(options);
+    if (!result.response?.ok && result.response?.status === 404 && (options.model === "gemini-4-argon-high" || options.model === "gemini-4-argon" || options.body?.model?.includes("argon"))) {
+      const fallbackModel = "gemini-3.8-flash-high";
+      options.log?.warn?.("ANTIGRAVITY", `Model ${options.model} returned 404 on Google Antigravity; gracefully falling back to ${fallbackModel}`);
+      const updatedBody = options.body ? { ...options.body, model: fallbackModel } : options.body;
+      result = await super.execute({
+        ...options,
+        model: fallbackModel,
+        body: updatedBody,
+      });
+    }
+    return result;
+  }
+
   // sessionId comes from transformRequest output; base.execute runs transformRequest before
   // buildHeaders, so we read it from instance state cached there (fallback: explicit arg).
   buildHeaders(credentials, stream = true, sessionId = null) {
