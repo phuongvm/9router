@@ -9,7 +9,7 @@ describe("Laya Local System One provider", () => {
 
   it("is registered as a System One local provider", () => {
     expect(entry).toBeDefined();
-    expect(entry.category).toBe("custom");
+    expect(entry.category).toBe("apikey");
     expect(entry.serviceKinds).toEqual(["systemone"]);
     expect(entry.authType).toBe("none");
     expect(PROVIDER_MEDIA["laya"]?.systemoneConfig?.baseUrl).toBeDefined();

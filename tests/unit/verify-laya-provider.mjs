@@ -1,8 +1,29 @@
 import assert from "node:assert";
-import REGISTRY from "../../open-sse/providers/registry/index.js";
-import { PROVIDER_MEDIA } from "../../open-sse/providers/index.js";
-import { getProvidersByKind } from "../../src/shared/constants/providers.js";
-import { handleSystemoneCore } from "../../open-sse/handlers/systemoneCore.js";
+import { registerHooks } from "node:module";
+import { pathToFileURL } from "node:url";
+import { dirname, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Plain `node` does not know the jsconfig/vitest aliases (`open-sse/*`, `@/*`) that
+// src/shared/constants/providers.js imports through, so map them here before loading
+// any app module (static imports would be hoisted above the hook registration).
+const ROOT = resolvePath(dirname(fileURLToPath(import.meta.url)), "..", "..");
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === "open-sse" || specifier.startsWith("open-sse/")) {
+      return nextResolve(pathToFileURL(resolvePath(ROOT, specifier)).href, context);
+    }
+    if (specifier.startsWith("@/")) {
+      return nextResolve(pathToFileURL(resolvePath(ROOT, "src", specifier.slice(2))).href, context);
+    }
+    return nextResolve(specifier, context);
+  },
+});
+
+const { default: REGISTRY } = await import("../../open-sse/providers/registry/index.js");
+const { PROVIDER_MEDIA } = await import("../../open-sse/providers/index.js");
+const { getProvidersByKind } = await import("../../src/shared/constants/providers.js");
+const { handleSystemoneCore } = await import("../../open-sse/handlers/systemoneCore.js");
 
 console.log("=== Verifying Laya Provider in 9Router ===");
 
