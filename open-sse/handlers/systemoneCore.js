@@ -3,27 +3,9 @@ import { HTTP_STATUS, FETCH_CONNECT_TIMEOUT_MS } from "../config/runtimeConfig.j
 import { PROVIDER_MEDIA } from "../providers/index.js";
 import { getModelUpstreamId } from "../config/providerModels.js";
 import { generateSessionId } from "../executors/opencode-zen.js";
+import { SYSTEMONE_FAILOVER, SYSTEMONE_OPENCODE_PROVIDERS } from "../config/systemoneConfig.js";
 
-const OPENCODE_PROVIDERS = new Set(["opencode", "opencode-zen"]);
-
-/**
- * Local System One failover chain: ollaya -> laya/typed-decisions -> opencode-zen/jev-1.13-free.
- * A hop is taken on a connection error or on one of `statuses` from the local engine; client
- * errors (4xx) are returned as-is. Ollaya reports load/inference failures as HTTP 500.
- */
-const SYSTEMONE_FAILOVER = {
-  ollaya: {
-    label: "Ollaya",
-    statuses: [500, 502, 503, 504],
-    next: { provider: "laya", model: "typed-decisions", credentials: null },
-  },
-  laya: {
-    label: "Laya",
-    statuses: [502, 503, 504],
-    next: { provider: "opencode-zen", model: "jev-1.13-free", credentials: { accessToken: "public" } },
-  },
-};
-
+// Take the configured next hop (config/systemoneConfig.js) for a failed local engine.
 function failover({ provider, reason, body, log, onRequestSuccess }) {
   const { label, next } = SYSTEMONE_FAILOVER[provider];
   log?.warn?.("SYSTEMONE", `Local ${label} ${reason}. Failing over to ${next.provider}/${next.model}`);
@@ -106,7 +88,7 @@ export async function handleSystemoneCore({
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(cfg.headers || {}),
     // Zen lanes expect the official client session header; other providers don't need it.
-    ...(OPENCODE_PROVIDERS.has(provider) ? { "x-opencode-session": generateSessionId() } : {}),
+    ...(SYSTEMONE_OPENCODE_PROVIDERS.has(provider) ? { "x-opencode-session": generateSessionId() } : {}),
   };
   // Cloudflare validates the body model as a short selector (e.g. "clef-flash"), not the full id.
   const requestBody = { ...body, model: getModelUpstreamId(provider, model) || model };

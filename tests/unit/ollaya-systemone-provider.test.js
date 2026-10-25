@@ -3,6 +3,8 @@ import REGISTRY from "../../open-sse/providers/registry/index.js";
 import { PROVIDER_MEDIA } from "../../open-sse/providers/index.js";
 import { getProvidersByKind } from "@/shared/constants/providers";
 import { handleSystemoneCore } from "../../open-sse/handlers/systemoneCore.js";
+import { SYSTEMONE_FAILOVER } from "../../open-sse/config/systemoneConfig.js";
+import { readFileSync } from "node:fs";
 
 const OLLAYA_HOST = "192.168.100.130:11435";
 const LAYA_HOST = "192.168.100.130:8000";
@@ -44,6 +46,25 @@ describe("Ollaya System One provider (registry)", () => {
 
   it("keeps laya registered alongside ollaya (9ROUTER-INV-7)", () => {
     expect(REGISTRY.find((e) => e.id === "laya")).toBeDefined();
+  });
+});
+
+describe("System One failover topology lives in open-sse/config (AGENTS.md: no hardcode outside config/)", () => {
+  it("SYSTEMONE_FAILOVER defines ollaya -> laya/typed-decisions -> opencode-zen/jev-1.13-free", () => {
+    expect(SYSTEMONE_FAILOVER.ollaya.next).toEqual({ provider: "laya", model: "typed-decisions", credentials: null });
+    expect(SYSTEMONE_FAILOVER.ollaya.statuses).toEqual([500, 502, 503, 504]);
+    expect(SYSTEMONE_FAILOVER.laya.next).toEqual({ provider: "opencode-zen", model: "jev-1.13-free", credentials: { accessToken: "public" } });
+    expect(SYSTEMONE_FAILOVER.laya.statuses).toEqual([502, 503, 504]);
+  });
+
+  it("systemoneCore.js carries no provider/model literals or failover table", () => {
+    const raw = readFileSync(new URL("../../open-sse/handlers/systemoneCore.js", import.meta.url), "utf8");
+    const src = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    for (const literal of ['"ollaya"', '"laya"', '"opencode"', '"opencode-zen"', '"typed-decisions"', '"jev-1.13-free"', '"public"']) {
+      expect(src).not.toContain(literal);
+    }
+    expect(src).not.toMatch(/const SYSTEMONE_FAILOVER\s*=/);
+    expect(src).toMatch(/from "\.\.\/config\/systemoneConfig\.js"/);
   });
 });
 
