@@ -7,7 +7,6 @@ import { SYSTEMONE_FAILOVER } from "../../open-sse/config/systemoneConfig.js";
 import { readFileSync } from "node:fs";
 
 const OLLAYA_HOST = "192.168.100.130:11435";
-const LAYA_HOST = "192.168.100.130:8000";
 const ZEN_URL = "opencode.ai/zen/v1/systemone";
 
 const body = { state: "test state", questions: { q: { type: "noul", instructions: "test" } } };
@@ -50,8 +49,8 @@ describe("Ollaya System One provider (registry)", () => {
 });
 
 describe("System One failover topology lives in open-sse/config (AGENTS.md: no hardcode outside config/)", () => {
-  it("SYSTEMONE_FAILOVER defines ollaya -> laya/typed-decisions -> opencode-zen/jev-1.13-free", () => {
-    expect(SYSTEMONE_FAILOVER.ollaya.next).toEqual({ provider: "laya", model: "typed-decisions", credentials: null });
+  it("SYSTEMONE_FAILOVER defines ollaya -> opencode-zen/jev-1.13-free and laya -> opencode-zen/jev-1.13-free", () => {
+    expect(SYSTEMONE_FAILOVER.ollaya.next).toEqual({ provider: "opencode-zen", model: "jev-1.13-free", credentials: { accessToken: "public" } });
     expect(SYSTEMONE_FAILOVER.ollaya.statuses).toEqual([500, 502, 503, 504]);
     expect(SYSTEMONE_FAILOVER.laya.next).toEqual({ provider: "opencode-zen", model: "jev-1.13-free", credentials: { accessToken: "public" } });
     expect(SYSTEMONE_FAILOVER.laya.statuses).toEqual([502, 503, 504]);
@@ -68,7 +67,7 @@ describe("System One failover topology lives in open-sse/config (AGENTS.md: no h
   });
 });
 
-describe("Ollaya failover chain: ollaya -> laya/typed-decisions -> opencode-zen/jev-1.13-free", () => {
+describe("Ollaya failover chain: ollaya -> opencode-zen/jev-1.13-free", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("forwards to Ollaya with the tag as body.model and no Authorization header", async () => {
@@ -87,11 +86,11 @@ describe("Ollaya failover chain: ollaya -> laya/typed-decisions -> opencode-zen/
     expect(init.headers.Authorization).toBeUndefined();
   });
 
-  it("fails over to laya/typed-decisions when Ollaya is unreachable", async () => {
+  it("fails over directly to opencode-zen/jev-1.13-free when Ollaya is unreachable", async () => {
     const log = { warn: vi.fn(), debug: vi.fn() };
     const fetchMock = vi.fn(async (url) => {
       if (url.includes(OLLAYA_HOST)) throw new Error(`connect ECONNREFUSED ${OLLAYA_HOST}`);
-      if (url.includes(LAYA_HOST)) return ok({ model: "typed-decisions", answers: {}, usage: { input_tokens: 7, output_tokens: 0 } });
+      if (url.includes(ZEN_URL)) return ok({ model: "jev-1.13-free", answers: {}, usage: { input_tokens: 7, output_tokens: 0 } });
       throw new Error(`unexpected url ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -103,15 +102,15 @@ describe("Ollaya failover chain: ollaya -> laya/typed-decisions -> opencode-zen/
     });
     expect(res.success).toBe(true);
     expect(res.usage).toEqual({ prompt_tokens: 7, completion_tokens: 0, total_tokens: 7 });
-    const layaCall = fetchMock.mock.calls.find(([u]) => u.includes(LAYA_HOST));
-    expect(JSON.parse(layaCall[1].body).model).toBe("typed-decisions");
-    expect(log.warn).toHaveBeenCalledWith("SYSTEMONE", expect.stringContaining("Failing over to laya/typed-decisions"));
+    const zenCall = fetchMock.mock.calls.find(([u]) => u.includes(ZEN_URL));
+    expect(JSON.parse(zenCall[1].body).model).toBe("jev-1.13-free");
+    expect(log.warn).toHaveBeenCalledWith("SYSTEMONE", expect.stringContaining("Failing over to opencode-zen/jev-1.13-free"));
   });
 
-  it.each([500, 502, 503, 504])("fails over to laya/typed-decisions on Ollaya HTTP %i", async (status) => {
+  it.each([500, 502, 503, 504])("fails over to opencode-zen/jev-1.13-free on Ollaya HTTP %i", async (status) => {
     const fetchMock = vi.fn(async (url) => {
       if (url.includes(OLLAYA_HOST)) return new Response(JSON.stringify({ error: "x", code: "MODEL_LOAD_FAILED" }), { status });
-      if (url.includes(LAYA_HOST)) return ok({ model: "typed-decisions", answers: {} });
+      if (url.includes(ZEN_URL)) return ok({ model: "jev-1.13-free", answers: {} });
       throw new Error(`unexpected url ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -122,7 +121,7 @@ describe("Ollaya failover chain: ollaya -> laya/typed-decisions -> opencode-zen/
       log: { warn: vi.fn(), debug: vi.fn() },
     });
     expect(res.success).toBe(true);
-    expect(fetchMock.mock.calls.map(([u]) => u.includes(LAYA_HOST))).toEqual([false, true]);
+    expect(fetchMock.mock.calls.map(([u]) => u.includes(ZEN_URL))).toEqual([false, true]);
   });
 
   it("does not fail over on a client error from Ollaya (e.g. 422)", async () => {
@@ -138,28 +137,5 @@ describe("Ollaya failover chain: ollaya -> laya/typed-decisions -> opencode-zen/
     });
     expect(res.success).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("falls through to opencode-zen/jev-1.13-free when Ollaya and Laya are both down", async () => {
-    const log = { warn: vi.fn(), debug: vi.fn() };
-    const fetchMock = vi.fn(async (url, init) => {
-      if (url.includes(OLLAYA_HOST)) throw new Error("connect ECONNREFUSED ollaya");
-      if (url.includes(LAYA_HOST)) return new Response("bad gateway", { status: 502 });
-      if (url.includes(ZEN_URL)) return ok({ model: "jev-1.13-free", answers: {}, usage: { input_tokens: 3, output_tokens: 0 } });
-      throw new Error(`unexpected url ${url}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const res = await handleSystemoneCore({
-      body,
-      modelInfo: { provider: "ollaya", model: "pplx-decider:flash-fp16" },
-      credentials: null,
-      log,
-    });
-    expect(res.success).toBe(true);
-    const hosts = fetchMock.mock.calls.map(([u]) => (u.includes(OLLAYA_HOST) ? "ollaya" : u.includes(LAYA_HOST) ? "laya" : "zen"));
-    expect(hosts).toEqual(["ollaya", "laya", "zen"]);
-    const zenCall = fetchMock.mock.calls[2];
-    expect(JSON.parse(zenCall[1].body).model).toBe("jev-1.13-free");
-    expect(log.warn).toHaveBeenCalledWith("SYSTEMONE", expect.stringContaining("Failing over to opencode-zen/jev-1.13-free"));
   });
 });
