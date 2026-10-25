@@ -7,6 +7,36 @@ import { generateSessionId } from "../executors/opencode-zen.js";
 const OPENCODE_PROVIDERS = new Set(["opencode", "opencode-zen"]);
 
 /**
+ * Local System One failover chain: ollaya -> laya/typed-decisions -> opencode-zen/jev-1.13-free.
+ * A hop is taken on a connection error or on one of `statuses` from the local engine; client
+ * errors (4xx) are returned as-is. Ollaya reports load/inference failures as HTTP 500.
+ */
+const SYSTEMONE_FAILOVER = {
+  ollaya: {
+    label: "Ollaya",
+    statuses: [500, 502, 503, 504],
+    next: { provider: "laya", model: "typed-decisions", credentials: null },
+  },
+  laya: {
+    label: "Laya",
+    statuses: [502, 503, 504],
+    next: { provider: "opencode-zen", model: "jev-1.13-free", credentials: { accessToken: "public" } },
+  },
+};
+
+function failover({ provider, reason, body, log, onRequestSuccess }) {
+  const { label, next } = SYSTEMONE_FAILOVER[provider];
+  log?.warn?.("SYSTEMONE", `Local ${label} ${reason}. Failing over to ${next.provider}/${next.model}`);
+  return handleSystemoneCore({
+    body: { ...body, model: next.model },
+    modelInfo: { provider: next.provider, model: next.model },
+    credentials: next.credentials,
+    log,
+    onRequestSuccess,
+  });
+}
+
+/**
  * Resolve the System One URL. A saved host override is joined with the registry
  * `path` (e.g. "/v1/systemone") without doubling a "/v1" or "/v1/systemone" the
  * user already included. Without `path`, the override is used as a full URL.
@@ -94,15 +124,8 @@ export async function handleSystemoneCore({
         : {}),
     });
   } catch (error) {
-    if (provider === "laya") {
-      log?.warn?.("SYSTEMONE", `Local Laya unreachable at ${targetUrl} (${error.message}). Failing over to opencode-zen/jev-1.13-free`);
-      return handleSystemoneCore({
-        body: { ...body, model: "jev-1.13-free" },
-        modelInfo: { provider: "opencode-zen", model: "jev-1.13-free" },
-        credentials: { accessToken: "public" },
-        log,
-        onRequestSuccess,
-      });
+    if (SYSTEMONE_FAILOVER[provider]) {
+      return failover({ provider, reason: `unreachable at ${targetUrl} (${error.message})`, body, log, onRequestSuccess });
     }
     const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
     log?.debug?.("SYSTEMONE", `Fetch error: ${errMsg}`);
@@ -110,15 +133,8 @@ export async function handleSystemoneCore({
   }
 
   if (!providerResponse.ok) {
-    if (provider === "laya" && [502, 503, 504].includes(providerResponse.status)) {
-      log?.warn?.("SYSTEMONE", `Local Laya returned status ${providerResponse.status}. Failing over to opencode-zen/jev-1.13-free`);
-      return handleSystemoneCore({
-        body: { ...body, model: "jev-1.13-free" },
-        modelInfo: { provider: "opencode-zen", model: "jev-1.13-free" },
-        credentials: { accessToken: "public" },
-        log,
-        onRequestSuccess,
-      });
+    if (SYSTEMONE_FAILOVER[provider]?.statuses.includes(providerResponse.status)) {
+      return failover({ provider, reason: `returned status ${providerResponse.status}`, body, log, onRequestSuccess });
     }
     const { statusCode, message } = await parseUpstreamError(providerResponse);
     const errMsg = formatProviderError(new Error(message), provider, model, statusCode);

@@ -141,6 +141,7 @@ import p136 from "./bedrock.js";
 import p137 from "./bedrock-xai.js";
 // import p138 from "./nous.js";
 import p998 from "./laya.js";
+import p997 from "./ollaya.js";
 import p140 from "./deepseek-web.js";
 import p143 from "./gemini-web.js";
 import p144 from "./muse-web.js";
@@ -288,6 +289,7 @@ export default [
   p137,
   // p138,
   p998,
+  p997,
   p140,
   p143,
   p144,
