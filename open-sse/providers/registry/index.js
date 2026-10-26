@@ -139,7 +139,7 @@ import p134 from "./minimax-code.js";
 import p135 from "./minimax-code-global.js";
 import p136 from "./bedrock.js";
 import p137 from "./bedrock-xai.js";
-// import p138 from "./nous.js";
+// import p138 from "./nous.js"; // deduplicated in favor of p999 (9ROUTER-INV-1)
 import p998 from "./laya.js";
 import p997 from "./ollaya.js";
 import p140 from "./deepseek-web.js";
