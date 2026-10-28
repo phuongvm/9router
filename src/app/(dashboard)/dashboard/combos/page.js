@@ -644,7 +644,8 @@ function getRouterModelStatus(routerModel, activeProviders) {
   const isNoAuth = !!providerDef?.noAuth;
 
   if (isNoAuth) {
-    return { ready: true, label: "Ready (Free)", providerId };
+    const isLocal = providerDef?.authType === "none";
+    return { ready: true, label: isLocal ? "Ready (Local)" : "Ready (Free)", providerId };
   }
 
   const isConnected = (activeProviders || []).some((c) => c.provider === providerId && c.isActive !== false);

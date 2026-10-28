@@ -2,6 +2,8 @@ import { getModelInfo } from "../services/model.js";
 import { getProviderCredentials } from "../services/auth.js";
 import { checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { handleSystemoneCore } from "open-sse/handlers/systemoneCore.js";
+import { saveRequestUsage, saveRequestDetail } from "@/lib/usageDb.js";
+import { AI_PROVIDERS } from "@/shared/constants/providers.js";
 import {
   DEFAULT_SYSTEMONE_ROUTER_MODEL,
   DEFAULT_SYSTEMONE_TIMEOUT_MS,
@@ -56,13 +58,20 @@ export async function resolveSmartChoice({
     }
 
     const { provider, model } = modelInfo;
+    const resolvedProvider = AI_PROVIDERS[provider];
+    const isNoAuth = !!(resolvedProvider?.noAuth || resolvedProvider?.authType === "none");
+
     const credentials = await getProviderCredentials(provider, new Set(), model);
-    if (!credentials || credentials.allRateLimited) {
+    if (!credentials && !isNoAuth) {
       log?.warn?.("COMBO", `smart-router: no credentials available for router provider "${provider}"`);
       return null;
     }
+    if (credentials?.allRateLimited) {
+      log?.warn?.("COMBO", `smart-router: all credentials rate limited for router provider "${provider}"`);
+      return null;
+    }
 
-    const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
+    const refreshedCredentials = credentials ? await checkAndRefreshToken(provider, credentials) : null;
     const systemoneBody = {
       model,
       state,
@@ -80,6 +89,7 @@ export async function resolveSmartChoice({
       timeoutId = setTimeout(() => reject(new Error(`System One router timed out after ${timeoutMs}ms`)), timeoutMs);
     });
 
+    const start = Date.now();
     const corePromise = handleSystemoneCore({
       body: systemoneBody,
       modelInfo: { provider, model },
@@ -100,7 +110,37 @@ export async function resolveSmartChoice({
       return null;
     }
 
-    const json = await result.response.json();
+    const latencyMs = Date.now() - start;
+    const prompt_tokens = result.usage?.prompt_tokens ?? result.usage?.input_tokens ?? (state ? Math.max(1, Math.ceil(state.length / 4)) : 1);
+    const completion_tokens = result.usage?.completion_tokens ?? result.usage?.output_tokens ?? 0;
+    const tokens = {
+      prompt_tokens,
+      completion_tokens,
+      total_tokens: prompt_tokens + completion_tokens,
+    };
+
+    saveRequestUsage({
+      provider,
+      model,
+      connectionId: refreshedCredentials?.connectionId,
+      endpoint: "/internal/smart-router",
+      tokens,
+      status: "success",
+    }).catch(() => {});
+
+    saveRequestDetail({
+      provider,
+      model,
+      connectionId: refreshedCredentials?.connectionId,
+      timestamp: new Date().toISOString(),
+      latency: { ttft: latencyMs, total: latencyMs },
+      tokens,
+      request: systemoneBody,
+      response: result.responseBody || {},
+      status: "success",
+    }).catch(() => {});
+
+    const json = result.responseBody || (await result.response.json());
     const route = parseSystemOneRouteAnswer(json);
     if (!route || !route.choice) {
       log?.warn?.("COMBO", "smart-router: response missing valid route choice");
