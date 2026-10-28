@@ -7,7 +7,7 @@
 import { findModelName } from "../config/providerModels.js";
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
 
-export const DEFAULT_SYSTEMONE_ROUTER_MODEL = "ollaya/pplx-decider:flash-fp16";
+export { DEFAULT_SYSTEMONE_ROUTER_MODEL } from "../config/systemoneConfig.js";
 export const DEFAULT_SYSTEMONE_TIMEOUT_MS = 8000;
 export const MAX_STATE_CHARS = 2000;
 export const MAX_STICKY_SESSIONS = 5000;

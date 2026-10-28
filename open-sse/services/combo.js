@@ -104,6 +104,24 @@ export function reorderByCapabilities(models, required) {
     .map((x) => x.m);
 }
 
+// Split models by whether they support every required hard capability (input modality).
+// Used by the smart strategy so models that would drop request data (e.g. a text-only
+// model on an image turn) are never offered to System One nor locked as sticky.
+// Returns { compatible, incompatible }, both preserving input order.
+export function partitionByHardCapabilities(models, required) {
+  const hard = required ? [...required].filter((c) => HARD_CAPS.has(c)) : [];
+  if (hard.length === 0 || !Array.isArray(models)) return { compatible: Array.isArray(models) ? models : [], incompatible: [] };
+  const compatible = [];
+  const incompatible = [];
+  for (const m of models) {
+    // Same raw-prefix lookup as reorderByCapabilities so both classify a model identically.
+    const { providerAlias, model } = parseModel(m);
+    const caps = getCapabilitiesForModel(providerAlias || "", model || m);
+    (hard.every((c) => caps[c] === true) ? compatible : incompatible).push(m);
+  }
+  return { compatible, incompatible };
+}
+
 /**
  * Track rotation state per combo (for round-robin strategy)
  * @type {Map<string, { index: number, consecutiveUseCount: number }>}
@@ -368,19 +386,25 @@ export async function handleComboChat({
 }) {
   let rotatedModels = models;
   let activeStickyModel = null;
-
-  // Auto-switch / modality pre-ordering: float models satisfying required capabilities
-  // so Smart Router selects from candidates that support the current turn's modality.
-  let candidateModels = models;
-  if (autoSwitch) {
-    const required = detectRequiredCapabilities(body);
-    if (required.size > 0) {
-      candidateModels = reorderByCapabilities(models, required);
-      rotatedModels = candidateModels;
-    }
-  }
+  const required = autoSwitch ? detectRequiredCapabilities(body) : new Set();
 
   if (comboStrategy === "smart") {
+    // Modality pre-filtering: models lacking a hard modality the current turn needs are
+    // excluded from System One's choice criteria and from session stickiness. They are
+    // kept only as a last-resort fallback tail. If no model qualifies, keep the full list.
+    let candidateModels = models;
+    let excludedModels = [];
+    if (required.size > 0) {
+      const ordered = reorderByCapabilities(models, required);
+      const { compatible, incompatible } = partitionByHardCapabilities(ordered, required);
+      candidateModels = compatible.length > 0 ? compatible : ordered;
+      excludedModels = compatible.length > 0 ? incompatible : [];
+      if (excludedModels.length > 0) {
+        log.info("COMBO", `smart-router excluded [${excludedModels.join(", ")}] lacking [${[...required].join(",")}]`);
+      }
+    }
+    rotatedModels = candidateModels;
+
     const policy = (typeof smartPolicy === "string" ? smartPolicy : "smart").toLowerCase();
     const isPerTurn = policy === "per-turn" || sessionSticky === false;
     const isStrict = policy === "strict";
@@ -440,16 +464,13 @@ export async function handleComboChat({
         const conf = typeof smartResult?.confidence === "number" ? smartResult.confidence : null;
 
         if (smartResult?.choice && candidateModels.includes(smartResult.choice)) {
-          if (switchThreshold > 0 && conf !== null && conf < switchThreshold) {
-            log.info("COMBO", `smart-router confidence (${conf}) below threshold (${switchThreshold}), fallback to order: [${candidateModels.join(", ")}]`);
-            rotatedModels = candidateModels;
-          } else {
-            rotatedModels = orderModelsByChoice(candidateModels, smartResult);
-            log.info("COMBO", `smart-router selected ${smartResult.choice} (confidence: ${conf ?? "N/A"})`);
-            if (!isPerTurn && sessionId) {
-              setStickyComboModel(comboName, sessionId, smartResult.choice);
-              activeStickyModel = smartResult.choice;
-            }
+          // No sticky model yet: accept the top choice. switchThreshold is cache-switching
+          // hysteresis and only applies when leaving an existing sticky model (Turn 2+).
+          rotatedModels = orderModelsByChoice(candidateModels, smartResult);
+          log.info("COMBO", `smart-router selected ${smartResult.choice} (confidence: ${conf ?? "N/A"})`);
+          if (!isPerTurn && sessionId) {
+            setStickyComboModel(comboName, sessionId, smartResult.choice);
+            activeStickyModel = smartResult.choice;
           }
         } else {
           log.info("COMBO", `smart-router no decision, fallback to order: [${candidateModels.join(", ")}]`);
@@ -460,6 +481,7 @@ export async function handleComboChat({
         rotatedModels = candidateModels;
       }
     }
+    if (excludedModels.length > 0) rotatedModels = [...rotatedModels, ...excludedModels];
   } else {
     // Apply rotation strategy if enabled
     rotatedModels = getRotatedModels(models, comboName, comboStrategy, comboStickyLimit);
@@ -467,7 +489,6 @@ export async function handleComboChat({
 
   // Auto-switch: float models that satisfy the request's required capabilities to the front.
   if (autoSwitch) {
-    const required = detectRequiredCapabilities(body);
     if (required.size > 0) {
       const reordered = reorderByCapabilities(rotatedModels, required);
       if (reordered[0] !== rotatedModels[0]) {

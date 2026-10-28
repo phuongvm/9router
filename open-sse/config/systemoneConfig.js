@@ -1,5 +1,8 @@
 // System One (decision models) routing config — consumed by handlers/systemoneCore.js
 
+// Default System One model that decides Smart Router combo routing (local Ollaya engine).
+export const DEFAULT_SYSTEMONE_ROUTER_MODEL = "ollaya/pplx-decider:flash-fp16";
+
 /**
  * Local System One failover table -> opencode-zen/jev-1.13-free.
  * Keyed by the provider that failed. A hop is taken on a connection error or on one of

@@ -10,6 +10,7 @@ import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { aggregateComboCapabilities } from "open-sse/providers/capabilities.js";
 import { resolveProviderId, AI_PROVIDERS } from "@/shared/constants/providers";
+import { DEFAULT_SYSTEMONE_ROUTER_MODEL } from "open-sse/config/systemoneConfig.js";
 
 // Validate combo name: only a-z, A-Z, 0-9, -, _
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
@@ -636,7 +637,7 @@ const fmtK = (n) => {
 function getRouterModelStatus(routerModel, activeProviders) {
   const effectiveModel = (typeof routerModel === "string" && routerModel.trim())
     ? routerModel.trim()
-    : "ollaya/pplx-decider:flash-fp16";
+    : DEFAULT_SYSTEMONE_ROUTER_MODEL;
   const slashIdx = effectiveModel.indexOf("/");
   const prefix = slashIdx !== -1 ? effectiveModel.slice(0, slashIdx) : effectiveModel;
   const providerId = resolveProviderId(prefix);
@@ -751,7 +752,7 @@ function ComboCard({ combo, getCaps, comboByName = {}, activeProviders = [], cop
                     title="Pick the System One model that decides model routing"
                   >
                     <span className="material-symbols-outlined text-[13px]">psychology</span>
-                    <span className="truncate">{routerModel || "Auto — ollaya/pplx-decider:flash-fp16"}</span>
+                    <span className="truncate">{routerModel || `Auto — ${DEFAULT_SYSTEMONE_ROUTER_MODEL}`}</span>
                   </button>
                   {routerStatus.ready ? (
                     <Badge variant="success" size="sm" dot>{routerStatus.label}</Badge>

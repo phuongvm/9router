@@ -335,7 +335,7 @@ describe("System One Smart Combo Router", () => {
       expect(calls[1]).toBe("cx/gpt-5-mini");
     });
 
-    it("falls back to default order when decision confidence is below confidenceThreshold", async () => {
+    it("accepts the top System One choice on Turn 1 even when confidence is below switchThreshold (no Turn-1 hysteresis)", async () => {
       const calls = [];
       const handleSingleModel = vi.fn(async (_body, model) => {
         calls.push(model);
@@ -344,7 +344,7 @@ describe("System One Smart Combo Router", () => {
 
       const resolveSmartChoice = vi.fn(async () => ({
         choice: "ds/deepseek-v4",
-        confidence: 0.65, // Below 0.8
+        confidence: 0.65, // Below 0.8 — binary-margin decision
         probabilities: { "ds/deepseek-v4": 0.65, "cx/gpt-5-mini": 0.35 },
       }));
 
@@ -361,8 +361,49 @@ describe("System One Smart Combo Router", () => {
       });
 
       expect(resolveSmartChoice).toHaveBeenCalledTimes(1);
-      // Because confidence 0.65 < threshold 0.8, preserved default order (cx/gpt-5-mini first)
-      expect(calls[0]).toBe("cx/gpt-5-mini");
+      // Turn 1 has no sticky model: the top choice is accepted, not static order.
+      expect(calls[0]).toBe("ds/deepseek-v4");
+      // ...and it is locked for the session.
+      expect(getStickyComboModel("dev-combo", "session-conf", ["cx/gpt-5-mini", "ds/deepseek-v4"])).toBe("ds/deepseek-v4");
+    });
+
+    it("enforces switchThreshold hysteresis only on Turn 2+ (default smart policy)", async () => {
+      const calls = [];
+      const handleSingleModel = vi.fn(async (_body, model) => {
+        calls.push(model);
+        return okResponse(`Answer from ${model}`);
+      });
+
+      let decision = { choice: "ds/deepseek-v4", confidence: 0.6 };
+      const resolveSmartChoice = vi.fn(async () => decision);
+      const run = (content) => handleComboChat({
+        body: { messages: [{ role: "user", content }] },
+        models: ["cx/gpt-5-mini", "ds/deepseek-v4"],
+        handleSingleModel,
+        log,
+        comboName: "dev-combo",
+        comboStrategy: "smart",
+        sessionId: "session-hysteresis",
+        confidenceThreshold: 0.8,
+        resolveSmartChoice,
+      });
+
+      // Turn 1: low-confidence choice accepted and made sticky.
+      await run("First task");
+      expect(calls[0]).toBe("ds/deepseek-v4");
+
+      // Turn 2: a different choice below threshold must NOT switch (cache retained).
+      decision = { choice: "cx/gpt-5-mini", confidence: 0.79 };
+      await run("Small follow-up");
+      expect(calls[1]).toBe("ds/deepseek-v4");
+      expect(getStickyComboModel("dev-combo", "session-hysteresis", ["cx/gpt-5-mini", "ds/deepseek-v4"])).toBe("ds/deepseek-v4");
+
+      // Turn 3: a different choice at/above threshold switches.
+      decision = { choice: "cx/gpt-5-mini", confidence: 0.8 };
+      await run("Totally different task");
+      expect(calls[2]).toBe("cx/gpt-5-mini");
+      expect(getStickyComboModel("dev-combo", "session-hysteresis", ["cx/gpt-5-mini", "ds/deepseek-v4"])).toBe("cx/gpt-5-mini");
+      expect(resolveSmartChoice).toHaveBeenCalledTimes(3);
     });
 
     it("supports strict lock policy: never calls router on subsequent turns", async () => {
@@ -610,6 +651,135 @@ describe("System One Smart Combo Router", () => {
       expect(evaluatedModels[0]).toBe("cx/gpt-5-mini");
       expect(calls[0]).toBe("cx/gpt-5-mini");
       expect(getStickyComboModel("dev-combo", "session-vision", ["ds/deepseek-v4", "cx/gpt-5-mini"])).toBe("cx/gpt-5-mini");
+    });
+
+    it("excludes models lacking a required hard modality from Smart Router choice criteria", async () => {
+      const calls = [];
+      const handleSingleModel = vi.fn(async (_body, model) => {
+        calls.push(model);
+        return okResponse(`Answer from ${model}`);
+      });
+
+      let evaluatedModels = null;
+      // Router (wrongly) prefers the text-only model; it must not even be offered.
+      const resolveSmartChoice = vi.fn(async (_body, candidateModels) => {
+        evaluatedModels = [...candidateModels];
+        return { choice: "ds/deepseek-v4", confidence: 0.99 };
+      });
+
+      const res = await handleComboChat({
+        body: {
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Describe this picture" },
+                { type: "image_url", image_url: { url: "https://example.com/cat.jpg" } },
+              ],
+            },
+          ],
+        },
+        models: ["ds/deepseek-v4", "cx/gpt-5-mini"], // deepseek-v4 is text-only
+        handleSingleModel,
+        log,
+        comboName: "dev-combo",
+        comboStrategy: "smart",
+        sessionId: "session-vision-exclude",
+        resolveSmartChoice,
+      });
+
+      expect(res.ok).toBe(true);
+      expect(evaluatedModels).toEqual(["cx/gpt-5-mini"]);
+      expect(calls[0]).toBe("cx/gpt-5-mini");
+      // An out-of-candidate (excluded) choice is ignored: the text-only model is never locked as sticky.
+      expect(getStickyComboModel("dev-combo", "session-vision-exclude", ["ds/deepseek-v4", "cx/gpt-5-mini"])).not.toBe("ds/deepseek-v4");
+    });
+
+    it("keeps excluded models as a last-resort fallback tail after compatible candidates fail", async () => {
+      const calls = [];
+      const handleSingleModel = vi.fn(async (_body, model) => {
+        calls.push(model);
+        if (model === "cx/gpt-5-mini") return errResponse(503, "Service Unavailable");
+        return okResponse(`Answer from ${model}`);
+      });
+
+      const resolveSmartChoice = vi.fn(async (_body, candidateModels) => ({ choice: candidateModels[0], confidence: 0.9 }));
+
+      const res = await handleComboChat({
+        body: {
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Describe this picture" },
+                { type: "image_url", image_url: { url: "https://example.com/cat.jpg" } },
+              ],
+            },
+          ],
+        },
+        models: ["ds/deepseek-v4", "cx/gpt-5-mini"],
+        handleSingleModel,
+        log,
+        comboName: "dev-combo",
+        comboStrategy: "smart",
+        sessionId: "session-vision-tail",
+        resolveSmartChoice,
+      });
+
+      expect(res.ok).toBe(true);
+      expect(calls).toEqual(["cx/gpt-5-mini", "ds/deepseek-v4"]);
+    });
+
+    it("offers the full candidate list when no model satisfies the required modality", async () => {
+      const handleSingleModel = vi.fn(async (_body, model) => okResponse(`Answer from ${model}`));
+      let evaluatedModels = null;
+      const resolveSmartChoice = vi.fn(async (_body, candidateModels) => {
+        evaluatedModels = [...candidateModels];
+        return null;
+      });
+
+      await handleComboChat({
+        body: {
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Describe this picture" },
+                { type: "image_url", image_url: { url: "https://example.com/cat.jpg" } },
+              ],
+            },
+          ],
+        },
+        models: ["ds/deepseek-v4", "unknown/text-only-model"],
+        handleSingleModel,
+        log,
+        comboName: "dev-combo",
+        comboStrategy: "smart",
+        sessionId: "session-vision-none",
+        resolveSmartChoice,
+      });
+
+      expect(evaluatedModels).toEqual(["ds/deepseek-v4", "unknown/text-only-model"]);
+    });
+  });
+
+  describe("Router model constant locality (W-03)", () => {
+    it("defines DEFAULT_SYSTEMONE_ROUTER_MODEL in open-sse/config/systemoneConfig.js and re-exports it", async () => {
+      const config = await import("../../open-sse/config/systemoneConfig.js");
+      const router = await import("../../open-sse/services/systemoneRouter.js");
+      expect(config.DEFAULT_SYSTEMONE_ROUTER_MODEL).toBe("ollaya/pplx-decider:flash-fp16");
+      expect(router.DEFAULT_SYSTEMONE_ROUTER_MODEL).toBe(config.DEFAULT_SYSTEMONE_ROUTER_MODEL);
+    });
+
+    it("does not hardcode the default router model literal in services or the combos page", async () => {
+      const { readFileSync } = await import("fs");
+      const { fileURLToPath } = await import("url");
+      const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8");
+      const literal = "ollaya/pplx-decider:flash-fp16";
+      expect(read("../../open-sse/services/systemoneRouter.js")).not.toContain(literal);
+      const page = read("../../src/app/(dashboard)/dashboard/combos/page.js");
+      expect(page).not.toContain(literal);
+      expect(page).toContain("DEFAULT_SYSTEMONE_ROUTER_MODEL");
     });
   });
 });

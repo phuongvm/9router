@@ -4,8 +4,8 @@ import { checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { handleSystemoneCore } from "open-sse/handlers/systemoneCore.js";
 import { saveRequestUsage, saveRequestDetail } from "@/lib/usageDb.js";
 import { AI_PROVIDERS } from "@/shared/constants/providers.js";
+import { DEFAULT_SYSTEMONE_ROUTER_MODEL } from "open-sse/config/systemoneConfig.js";
 import {
-  DEFAULT_SYSTEMONE_ROUTER_MODEL,
   DEFAULT_SYSTEMONE_TIMEOUT_MS,
   extractPromptState,
   buildChoiceCriteria,
@@ -23,7 +23,7 @@ import {
  * @param {object} opts
  * @param {object} opts.body - Client request body
  * @param {string[]} opts.models - Combo model candidate array
- * @param {string} [opts.routerModel] - System One router model (defaults to oc/jev-1.13-free)
+ * @param {string} [opts.routerModel] - System One router model (defaults to DEFAULT_SYSTEMONE_ROUTER_MODEL)
  * @param {object} [opts.log] - Logger
  * @param {number} [opts.timeoutMs=DEFAULT_SYSTEMONE_TIMEOUT_MS] - Hard ceiling for router evaluation
  * @returns {Promise<{ choice: string, confidence: number|null, probabilities: Record<string, number>|null } | null>}
@@ -119,13 +119,18 @@ export async function resolveSmartChoice({
       total_tokens: prompt_tokens + completion_tokens,
     };
 
+    const json = result.responseBody || (await result.response.json());
+    const route = parseSystemOneRouteAnswer(json);
+    // Persist telemetry only after validating the route: "success" means a usable decision.
+    const status = route?.choice ? "success" : "error";
+
     saveRequestUsage({
       provider,
       model,
       connectionId: refreshedCredentials?.connectionId,
       endpoint: "/internal/smart-router",
       tokens,
-      status: "success",
+      status,
     }).catch(() => {});
 
     saveRequestDetail({
@@ -136,13 +141,11 @@ export async function resolveSmartChoice({
       latency: { ttft: latencyMs, total: latencyMs },
       tokens,
       request: systemoneBody,
-      response: result.responseBody || {},
-      status: "success",
+      response: json || {},
+      status,
     }).catch(() => {});
 
-    const json = result.responseBody || (await result.response.json());
-    const route = parseSystemOneRouteAnswer(json);
-    if (!route || !route.choice) {
+    if (!route?.choice) {
       log?.warn?.("COMBO", "smart-router: response missing valid route choice");
       return null;
     }

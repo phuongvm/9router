@@ -106,4 +106,40 @@ describe("Smart Router NoAuth & Ollaya Dispatch (Ticket 01)", () => {
       expect.stringContaining("no credentials available for router provider \"openrouter\"")
     );
   });
+
+  it("does not record success telemetry when the router response lacks a valid route choice (W-02)", async () => {
+    const mockLog = { debug: vi.fn(), warn: vi.fn(), info: vi.fn() };
+    vi.spyOn(modelService, "getModelInfo").mockResolvedValue({
+      provider: "ollaya",
+      model: "pplx-decider:flash-fp16",
+    });
+    vi.spyOn(authService, "getProviderCredentials").mockResolvedValue(null);
+    const mockUsageSave = vi.spyOn(usageDb, "saveRequestUsage").mockResolvedValue({});
+    const mockDetailSave = vi.spyOn(usageDb, "saveRequestDetail").mockResolvedValue({});
+
+    vi.spyOn(systemoneCore, "handleSystemoneCore").mockResolvedValue({
+      success: true,
+      responseBody: { model: "pplx-decider:flash-fp16", answers: {} },
+      usage: { input_tokens: 10, output_tokens: 0 },
+      response: new Response("{}", { status: 200 }),
+    });
+
+    const result = await resolveSmartChoice({
+      body: { messages: [{ role: "user", content: "Hello" }] },
+      models: ["cx/gpt-5-mini", "ds/deepseek-v4"],
+      routerModel: "ollaya/pplx-decider:flash-fp16",
+      log: mockLog,
+    });
+
+    expect(result).toBeNull();
+    expect(mockUsageSave).not.toHaveBeenCalledWith(expect.objectContaining({ status: "success" }));
+    expect(mockDetailSave).not.toHaveBeenCalledWith(expect.objectContaining({ status: "success" }));
+    expect(mockUsageSave).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "ollaya", endpoint: "/internal/smart-router", status: "error" })
+    );
+    expect(mockDetailSave).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "ollaya", status: "error" })
+    );
+  });
 });
+
