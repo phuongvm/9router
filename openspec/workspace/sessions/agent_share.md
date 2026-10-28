@@ -72,3 +72,49 @@
 - [Coder] NUC: backup `9router_backup_20261028_160128.sqlite`, deployed `c3bae6d9`, recalculated 13 101 Claude `usageHistory` rows and 36 `usageDaily` rollups (Claude cost $7 780 → $1 044), set `providerStrategies.antigravity/codex.stickyRoundRobinLimit` from 1 to 50. Today's Claude cache ratio is 96.56% (was ~49.8%).
 - Report: `openspec/workspace/explorations/2026-10-28-9router-cached-tokens-metric-exploration.md`.
 - [Reviewer] 16:34: Independent Round-1 dual review APPROVED WITH ADVISORIES for card `t_d8403bb8`. Canonical Crew proof PASS rc=0; commit/source/container identity verified at `c3bae6d9`; focused suite 12 files / 88 tests passed; live and backup SQLite integrity are `ok`; post-deploy Claude double-fold signature is 0/139; row 1009040 is 230469 tokens / $0.0725518; sticky limits are 50 for antigravity/codex; live today stats are Claude 96.79%, antigravity 70.06%, codex 74.19%, overall 78.04%. Advisories: repository default branch is `master` (no `origin/main` ref), and the new `message_stop` call uses literal `"claude"` instead of imported `FORMATS.CLAUDE`; neither affects verified behavior.
+
+## 2026-10-28 — Smart Router Ollaya Integration Review (card t_d90c0df5)
+
+- [Reviewer] 21:50: Independent code-quality & OpenSpec verification REJECTED commits `0f03d1ee` and `98733146` on `feat/smart-router-ollaya` (worktree `O:/workspaces/.worktrees/wt-9router-smart-router-ollaya`).
+- Findings report authored at `openspec/changes/integrate-smart-router-ollaya/reviews/findings-session-smart-router-review.md`.
+- Canonical Crew proof PASS rc=0 (`test -s ...`); zero-checkout boundary preserved (`master` clean, worktree isolated).
+- Ticket 01 verified: NoAuth provider resolution in `resolveSmartChoice` and UI discovery in `ModelSelectModal.js` without synthetic DB credentials (9ROUTER-INV-7). Multi-format prompt extraction and criteria enrichment verified.
+- Defect C-01 (CRITICAL): False task completion on Task 2.4. `open-sse/services/combo.js:442-446` still enforces 80% `switchThreshold` on Turn 1, violating `spec.md:63-68`.
+- Defect C-02 (CRITICAL): `tests/unit/combo-smart-router.test.js:338-366` retains legacy test enforcing Turn-1 fallback on `conf < 0.8`, creating a direct test suite contradiction with the new spec.
+- Defect W-01/W-02 (WARNING): `reorderByCapabilities` does not exclude incompatible modality models; telemetry logs success before verifying valid route choice.
+- Recommended coordinator action: Re-queue card for worker rework; block Intel NUC deployment until C-01 and C-02 are remediated.
+
+## 2026-10-28 — Smart Router rework of review t_d90c0df5 (card t_e65e6225)
+
+- [Coder] C-01: `open-sse/services/combo.js` Turn 1 (no sticky model) now accepts the top System One choice; `switchThreshold` hysteresis applies only when switching away from an existing sticky model (Turn 2+).
+- [Coder] C-02: replaced the legacy Turn-1 fallback test with "accepts the top choice on Turn 1 below switchThreshold" and added a Turn-2+ hysteresis test (0.79 retained, 0.80 switches) in `tests/unit/combo-smart-router.test.js`.
+- [Coder] W-01: added `partitionByHardCapabilities`; the smart strategy leaves models lacking a required hard modality out of the System One criteria and stickiness, keeps them as a last-resort fallback tail, and offers the full list when no model qualifies. I-01 is closed as a side effect: `detectRequiredCapabilities` now runs once.
+- [Coder] W-02: `src/sse/services/systemoneRouter.js` persists `/internal/smart-router` telemetry after route validation: `success` for a valid choice, `error` otherwise.
+- [Coder] W-03: `DEFAULT_SYSTEMONE_ROUTER_MODEL` moved to `open-sse/config/systemoneConfig.js` (re-exported by services); `combos/page.js` imports it and no longer has the hardcoded literal.
+- [Coder] Tests: target suites 32/32 pass (`cd tests && npx vitest run -c vitest.config.js unit/combo-smart-router.test.js unit/smart-router-noauth.test.js`). On the 15 neighbouring combo and System One files, 3 tests fail both before and after the change, so they are not regressions. Card proof command path is broken (`-c tests/vitest.config.js` after `cd tests`), so I escalated it to the coordinator.
+
+## 2026-10-28 — Smart Router Independent Re-Review (card t_c593f966)
+
+- [Reviewer] 22:30: Independent Round-2 verification APPROVED remediation commit `cdafaf8e` on `feat/smart-router-ollaya` (worktree `O:/workspaces/.worktrees/wt-9router-smart-router-ollaya`).
+- Findings report authored at `openspec/changes/integrate-smart-router-ollaya/reviews/findings-session-smart-router-rereview-v2.md`.
+- Canonical Crew proof PASS rc=0 (`test -s ...`); zero-checkout boundary preserved (`master` clean in `O:/workspaces/oss/9router`, worktree isolated).
+- C-01 & C-02 (CRITICAL) VERIFIED RESOLVED: Turn-1 `switchThreshold` branch removed from `open-sse/services/combo.js` so top System One choice is unconditionally accepted and made sticky on Turn 1; obsolete test replaced with Turn-1 acceptance test below threshold (`0.65 < 0.8`) and new Turn-2+ hysteresis test (`0.79` retains sticky model, `0.80` switches).
+- W-01 (WARNING) VERIFIED RESOLVED: `partitionByHardCapabilities` partitions models by hard capabilities (`HARD_CAPS`), excluding models lacking required modalities from System One choice criteria and stickiness while retaining them as fallback tail; `detectRequiredCapabilities` deduplicated.
+- W-02 (WARNING) VERIFIED RESOLVED: `src/sse/services/systemoneRouter.js` validates route choice before telemetry logging, setting `status: "success"` on valid choice and `status: "error"` on invalid choice.
+- W-03 (WARNING) VERIFIED RESOLVED: `DEFAULT_SYSTEMONE_ROUTER_MODEL` moved to `open-sse/config/systemoneConfig.js` and imported into `combos/page.js`, eliminating hardcoded model literals.
+- Test suites: 32/32 pass in `combo-smart-router.test.js` and `smart-router-noauth.test.js`; 21/21 pass in `ollaya-systemone-provider.test.js` and `cached-token-e2e.test.js`; `verify-laya-provider.mjs` all passed.
+- Recommended coordinator action: Merge `feat/smart-router-ollaya` to `master` and proceed with Intel NUC deployment.
+
+## 2026-10-29 — Daily Upstream Sync Watchdog (cron job)
+
+- [Watchdog] 05:35: Reconciled 14 upstream commits from `decolua/9router` into `origin/master` (candidate SHA `98873fd0d3dd14455d4e9e33710868f64e2eecf5`).
+- Active Reconciliation: Resolved content conflict in `tests/__baseline__/alias-baseline.json`, preserving local custom provider alias `ollaya` alongside upstream additions (`nace`, `runcrate`, `ollama-local`).
+- Invariant Verification (9ROUTER-INV-1..7):
+  - Vitest custom modules suite: 15/15 files passed (120/120 tests PASS).
+  - Baselines: `verify-alias.mjs` (132 tokens byte-for-byte), `verify-oauth-urls.mjs`, and `verify-providers.mjs` (101 providers byte-for-byte) PASS.
+  - 9ROUTER-INV-7: `verify-laya-provider.mjs` and `test-systemone-usage-logic.mjs` PASS.
+- Publication & Live Sync:
+  - `origin/master` updated autonomously via `sync/upstream-master-daily:master`.
+  - Primary checkout `O:/workspaces/oss/9router` fast-forwarded to `98873fd0d3dd14455d4e9e33710868f64e2eecf5`.
+  - Graphify AST extraction and Neo4j sync to Intel NUC verified.
+  - Offline verification in primary checkout passed 100%.
