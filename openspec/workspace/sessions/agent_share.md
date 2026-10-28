@@ -65,3 +65,10 @@
 - Enhanced `src/sse/handlers/systemone.js` to measure latency, construct full `tokens` object, call `saveRequestUsage` with `tokens` and `status: "success"`, and invoke `saveRequestDetail` for both `noAuth` (Laya) and credentialed providers.
 - Hardened `src/lib/db/repos/usageRepo.js` with defensive fallback in `saveRequestUsage` and relaxed `recentRequests` filter so valid model requests are never dropped.
 - Archived change to `openspec/changes/archive/2026-10-16-fix-systemone-usage-logs/` with canonical spec at `openspec/specs/systemone-usage-logs/spec.md`.
+
+## 2026-10-28 — Claude cached-token double fold + antigravity sticky (card t_d8403bb8)
+
+- [Coder] Fixed the Bug 1A double fold (`claude-to-openai.js` emits canonical `state.usage`; `canonicalizeUsage` has an already-folded guard) and Bug 1B (`stream.js` merges client usage instead of replacing it). Added `tests/unit/cached-token-e2e.test.js`. Commit `c3bae6d9` on `origin/master`.
+- [Coder] NUC: backup `9router_backup_20261028_160128.sqlite`, deployed `c3bae6d9`, recalculated 13 101 Claude `usageHistory` rows and 36 `usageDaily` rollups (Claude cost $7 780 → $1 044), set `providerStrategies.antigravity/codex.stickyRoundRobinLimit` from 1 to 50. Today's Claude cache ratio is 96.56% (was ~49.8%).
+- Report: `openspec/workspace/explorations/2026-10-28-9router-cached-tokens-metric-exploration.md`.
+- [Reviewer] 16:34: Independent Round-1 dual review APPROVED WITH ADVISORIES for card `t_d8403bb8`. Canonical Crew proof PASS rc=0; commit/source/container identity verified at `c3bae6d9`; focused suite 12 files / 88 tests passed; live and backup SQLite integrity are `ok`; post-deploy Claude double-fold signature is 0/139; row 1009040 is 230469 tokens / $0.0725518; sticky limits are 50 for antigravity/codex; live today stats are Claude 96.79%, antigravity 70.06%, codex 74.19%, overall 78.04%. Advisories: repository default branch is `master` (no `origin/main` ref), and the new `message_stop` call uses literal `"claude"` instead of imported `FORMATS.CLAUDE`; neither affects verified behavior.
