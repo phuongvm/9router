@@ -4,7 +4,10 @@
  * before generation begins, with session stickiness for prompt-cache retention.
  */
 
-export const DEFAULT_SYSTEMONE_ROUTER_MODEL = "oc/jev-1.13-free";
+import { findModelName } from "../config/providerModels.js";
+import { getCapabilitiesForModel } from "../providers/capabilities.js";
+
+export const DEFAULT_SYSTEMONE_ROUTER_MODEL = "ollaya/pplx-decider:flash-fp16";
 export const DEFAULT_SYSTEMONE_TIMEOUT_MS = 8000;
 export const MAX_STATE_CHARS = 2000;
 export const MAX_STICKY_SESSIONS = 5000;
@@ -19,6 +22,7 @@ const comboSessionModelStore = new Map();
 /**
  * Extract prompt text from the request body for System One classification.
  * Takes the last user turn (or prompt) and truncates to avoid token waste.
+ * Supports OpenAI messages, OpenAI Responses input, and Gemini contents.
  *
  * @param {object} body - Request body
  * @param {number} [maxChars=MAX_STATE_CHARS] - Max character cap
@@ -27,17 +31,19 @@ const comboSessionModelStore = new Map();
 export function extractPromptState(body, maxChars = MAX_STATE_CHARS) {
   if (!body || typeof body !== "object") return "";
 
-  // Messages array (OpenAI / Claude / etc.) or input array (Codex)
+  // Messages array (OpenAI / Claude / etc.), input array (Codex), or contents array (Gemini)
   const messages = Array.isArray(body.messages)
     ? body.messages
-    : (Array.isArray(body.input) ? body.input : null);
+    : (Array.isArray(body.input)
+      ? body.input
+      : (Array.isArray(body.contents) ? body.contents : null));
 
   if (messages && messages.length > 0) {
     // Find the latest user message
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
-      if (msg?.role === "user" || msg?.type === "message" || (!msg?.role && msg?.content)) {
-        const text = extractTextFromContent(msg.content ?? msg.text);
+      if (msg?.role === "user" || msg?.type === "message" || (!msg?.role && (msg?.content || msg?.parts))) {
+        const text = extractTextFromContent(msg.content ?? msg.parts ?? msg.text);
         if (text && text.trim().length > 0) {
           return text.trim().slice(0, maxChars);
         }
@@ -45,7 +51,7 @@ export function extractPromptState(body, maxChars = MAX_STATE_CHARS) {
     }
     // Fallback: latest message of any role
     const lastMsg = messages[messages.length - 1];
-    const text = extractTextFromContent(lastMsg?.content ?? lastMsg?.text);
+    const text = extractTextFromContent(lastMsg?.content ?? lastMsg?.parts ?? lastMsg?.text);
     if (text) return text.trim().slice(0, maxChars);
   }
 
@@ -66,7 +72,7 @@ function extractTextFromContent(content) {
     return content
       .map((part) => {
         if (typeof part === "string") return part;
-        if (part?.type === "text" && typeof part.text === "string") return part.text;
+        if (typeof part?.text === "string") return part.text;
         return "";
       })
       .filter(Boolean)
@@ -76,19 +82,45 @@ function extractTextFromContent(content) {
 }
 
 /**
+ * Auto-format a descriptive label for a candidate model based on registry metadata.
+ * Helps decision models distinguish models with internal prefixes (cx/, cc/, ds/, ag/).
+ *
+ * @param {string} modelStr - Candidate model ID
+ * @returns {string} Enriched descriptor or model name
+ */
+export function formatModelDescriptor(modelStr) {
+  if (typeof modelStr !== "string" || !modelStr.trim()) return "";
+  const trimmed = modelStr.trim();
+  const slash = trimmed.indexOf("/");
+  const provider = slash > 0 ? trimmed.slice(0, slash) : "";
+  const model = slash > 0 ? trimmed.slice(slash + 1) : trimmed;
+  const name = findModelName(provider, model);
+  const caps = getCapabilitiesForModel(provider, model);
+  const features = [];
+  if (caps?.reasoning) features.push("reasoning");
+  if (caps?.vision) features.push("vision");
+  if (caps?.tools) features.push("tools");
+  if (caps?.contextWindow && caps.contextWindow >= 1000) {
+    features.push(`${Math.round(caps.contextWindow / 1000)}k ctx`);
+  }
+  const featStr = features.length > 0 ? ` (${features.join(", ")})` : "";
+  return name && name !== model ? `${name}${featStr}` : `${model}${featStr}`;
+}
+
+/**
  * Build choice criteria dictionary for System One from an array of models.
- * Criteria keys are the model names; values are null so System One uses its
- * native knowledge of models without manual descriptions.
+ * Enriches criteria descriptions with model name and key capabilities from registry.
  *
  * @param {string[]} models - Array of model IDs in the combo
- * @returns {Record<string, null>} Criteria map
+ * @returns {Record<string, string|null>} Criteria map
  */
 export function buildChoiceCriteria(models) {
   const criteria = {};
   if (!Array.isArray(models)) return criteria;
   for (const m of models) {
     if (typeof m === "string" && m.trim().length > 0) {
-      criteria[m.trim()] = null;
+      const desc = formatModelDescriptor(m.trim());
+      criteria[m.trim()] = desc || null;
     }
   }
   return criteria;

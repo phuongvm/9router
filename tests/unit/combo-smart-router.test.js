@@ -62,6 +62,31 @@ describe("System One Smart Combo Router", () => {
       expect(extractPromptState(body)).toBe("Parse this AST: function foo() {}");
     });
 
+    it("extracts text from OpenAI Responses input_text blocks", () => {
+      const body = {
+        input: [
+          {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Fix this race condition in Codex" }],
+          },
+        ],
+      };
+      expect(extractPromptState(body)).toBe("Fix this race condition in Codex");
+    });
+
+    it("extracts text from Gemini native contents and parts", () => {
+      const body = {
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: "Explain Raft consensus" }],
+          },
+        ],
+      };
+      expect(extractPromptState(body)).toBe("Explain Raft consensus");
+    });
+
     it("extracts from string prompt or input", () => {
       expect(extractPromptState({ prompt: "Hello world" })).toBe("Hello world");
       expect(extractPromptState({ input: "Codex prompt" })).toBe("Codex prompt");
@@ -75,13 +100,14 @@ describe("System One Smart Combo Router", () => {
   });
 
   describe("buildChoiceCriteria", () => {
-    it("maps model IDs to null values for System One native evaluation", () => {
+    it("maps model IDs to enriched descriptor strings containing capabilities", () => {
       const models = ["ds/deepseek-v4", "cx/gpt-5-mini", "cc/claude-haiku-4"];
-      expect(buildChoiceCriteria(models)).toEqual({
-        "ds/deepseek-v4": null,
-        "cx/gpt-5-mini": null,
-        "cc/claude-haiku-4": null,
-      });
+      const criteria = buildChoiceCriteria(models);
+      expect(criteria["ds/deepseek-v4"]).toContain("deepseek-v4");
+      expect(criteria["ds/deepseek-v4"]).toContain("reasoning");
+      expect(criteria["cx/gpt-5-mini"]).toContain("gpt-5-mini");
+      expect(criteria["cx/gpt-5-mini"]).toContain("vision");
+      expect(criteria["cc/claude-haiku-4"]).toContain("claude-haiku-4");
     });
   });
 
@@ -540,6 +566,50 @@ describe("System One Smart Combo Router", () => {
       });
 
       expect(calls[1]).toBe("ds/deepseek-v4"); // Switched because 0.76 >= 0.75
+    });
+
+    it("pre-filters and prioritizes candidate models by hard modality (vision) before smart routing", async () => {
+      const calls = [];
+      const handleSingleModel = vi.fn(async (_body, model) => {
+        calls.push(model);
+        return okResponse(`Answer from ${model}`);
+      });
+
+      let evaluatedModels = null;
+      const resolveSmartChoice = vi.fn(async (_body, candidateModels) => {
+        evaluatedModels = [...candidateModels];
+        return {
+          choice: candidateModels[0],
+          confidence: 0.95,
+        };
+      });
+
+      // Request with image block
+      await handleComboChat({
+        body: {
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "What is in this image?" },
+                { type: "image_url", image_url: { url: "https://example.com/cat.jpg" } },
+              ],
+            },
+          ],
+        },
+        models: ["ds/deepseek-v4", "cx/gpt-5-mini"], // deepseek has no vision, gpt-5-mini has vision
+        handleSingleModel,
+        log,
+        comboName: "dev-combo",
+        comboStrategy: "smart",
+        sessionId: "session-vision",
+        resolveSmartChoice,
+      });
+
+      // evaluatedModels should have cx/gpt-5-mini at index 0 because it supports vision
+      expect(evaluatedModels[0]).toBe("cx/gpt-5-mini");
+      expect(calls[0]).toBe("cx/gpt-5-mini");
+      expect(getStickyComboModel("dev-combo", "session-vision", ["ds/deepseek-v4", "cx/gpt-5-mini"])).toBe("cx/gpt-5-mini");
     });
   });
 });

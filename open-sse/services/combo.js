@@ -369,6 +369,17 @@ export async function handleComboChat({
   let rotatedModels = models;
   let activeStickyModel = null;
 
+  // Auto-switch / modality pre-ordering: float models satisfying required capabilities
+  // so Smart Router selects from candidates that support the current turn's modality.
+  let candidateModels = models;
+  if (autoSwitch) {
+    const required = detectRequiredCapabilities(body);
+    if (required.size > 0) {
+      candidateModels = reorderByCapabilities(models, required);
+      rotatedModels = candidateModels;
+    }
+  }
+
   if (comboStrategy === "smart") {
     const policy = (typeof smartPolicy === "string" ? smartPolicy : "smart").toLowerCase();
     const isPerTurn = policy === "per-turn" || sessionSticky === false;
@@ -386,24 +397,24 @@ export async function handleComboChat({
     }
 
     if (!isPerTurn && sessionId) {
-      activeStickyModel = getStickyComboModel(comboName, sessionId, models);
+      activeStickyModel = getStickyComboModel(comboName, sessionId, candidateModels);
     }
 
     if (activeStickyModel) {
       if (isStrict) {
         // Strict Lock: re-use sticky model without invoking System One (0ms, 0 extra tokens)
-        rotatedModels = [activeStickyModel, ...models.filter((m) => m !== activeStickyModel)];
+        rotatedModels = [activeStickyModel, ...candidateModels.filter((m) => m !== activeStickyModel)];
         log.info("COMBO", `smart-router [strict] locked session "${sessionId}" → ${activeStickyModel}`);
       } else if (typeof resolveSmartChoice === "function") {
         // Smart Switch (Adaptive): check if the user's task drastically shifted
         try {
-          const smartResult = await resolveSmartChoice(body, models);
+          const smartResult = await resolveSmartChoice(body, candidateModels);
           const newChoice = smartResult?.choice;
           const conf = typeof smartResult?.confidence === "number" ? smartResult.confidence : null;
 
-          if (newChoice && newChoice !== activeStickyModel && models.includes(newChoice) && conf !== null && conf >= switchThreshold) {
+          if (newChoice && newChoice !== activeStickyModel && candidateModels.includes(newChoice) && conf !== null && conf >= switchThreshold) {
             // Task changed with high confidence: switch model and update session
-            rotatedModels = orderModelsByChoice(models, smartResult);
+            rotatedModels = orderModelsByChoice(candidateModels, smartResult);
             log.info("COMBO", `smart-router [smart-switch] task changed → switched from ${activeStickyModel} to ${newChoice} (confidence: ${conf} >= ${switchThreshold})`);
             if (sessionId) {
               setStickyComboModel(comboName, sessionId, newChoice);
@@ -411,28 +422,29 @@ export async function handleComboChat({
             }
           } else {
             // Stay on current model to preserve warm prompt cache
-            rotatedModels = [activeStickyModel, ...models.filter((m) => m !== activeStickyModel)];
+            rotatedModels = [activeStickyModel, ...candidateModels.filter((m) => m !== activeStickyModel)];
             log.info("COMBO", `smart-router [smart-switch] retained prompt cache model "${activeStickyModel}"`);
           }
         } catch (err) {
           // Fail open to active sticky model
-          rotatedModels = [activeStickyModel, ...models.filter((m) => m !== activeStickyModel)];
+          rotatedModels = [activeStickyModel, ...candidateModels.filter((m) => m !== activeStickyModel)];
           log.warn("COMBO", `smart-router error, retained model "${activeStickyModel}"`, { error: err?.message || String(err) });
         }
       } else {
-        rotatedModels = [activeStickyModel, ...models.filter((m) => m !== activeStickyModel)];
+        rotatedModels = [activeStickyModel, ...candidateModels.filter((m) => m !== activeStickyModel)];
       }
     } else if (typeof resolveSmartChoice === "function") {
       // Turn 1 or per-turn: evaluate System One to select initial model
       try {
-        const smartResult = await resolveSmartChoice(body, models);
+        const smartResult = await resolveSmartChoice(body, candidateModels);
         const conf = typeof smartResult?.confidence === "number" ? smartResult.confidence : null;
 
-        if (smartResult?.choice && models.includes(smartResult.choice)) {
+        if (smartResult?.choice && candidateModels.includes(smartResult.choice)) {
           if (switchThreshold > 0 && conf !== null && conf < switchThreshold) {
-            log.info("COMBO", `smart-router confidence (${conf}) below threshold (${switchThreshold}), fallback to order: [${models.join(", ")}]`);
+            log.info("COMBO", `smart-router confidence (${conf}) below threshold (${switchThreshold}), fallback to order: [${candidateModels.join(", ")}]`);
+            rotatedModels = candidateModels;
           } else {
-            rotatedModels = orderModelsByChoice(models, smartResult);
+            rotatedModels = orderModelsByChoice(candidateModels, smartResult);
             log.info("COMBO", `smart-router selected ${smartResult.choice} (confidence: ${conf ?? "N/A"})`);
             if (!isPerTurn && sessionId) {
               setStickyComboModel(comboName, sessionId, smartResult.choice);
@@ -440,10 +452,12 @@ export async function handleComboChat({
             }
           }
         } else {
-          log.info("COMBO", `smart-router no decision, fallback to order: [${models.join(", ")}]`);
+          log.info("COMBO", `smart-router no decision, fallback to order: [${candidateModels.join(", ")}]`);
+          rotatedModels = candidateModels;
         }
       } catch (err) {
-        log.warn("COMBO", `smart-router error, fallback to order: [${models.join(", ")}]`, { error: err?.message || String(err) });
+        log.warn("COMBO", `smart-router error, fallback to order: [${candidateModels.join(", ")}]`, { error: err?.message || String(err) });
+        rotatedModels = candidateModels;
       }
     }
   } else {
