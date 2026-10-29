@@ -61,6 +61,7 @@ describe("Smart Router NoAuth & Ollaya Dispatch (Ticket 01)", () => {
       log: mockLog,
     });
 
+    expect(authService.getProviderCredentials).not.toHaveBeenCalled();
     expect(result).toBeDefined();
     expect(result.choice).toBe("ds/deepseek-v4");
     expect(result.confidence).toBe(0.95);

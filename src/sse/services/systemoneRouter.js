@@ -61,7 +61,7 @@ export async function resolveSmartChoice({
     const resolvedProvider = AI_PROVIDERS[provider];
     const isNoAuth = !!(resolvedProvider?.noAuth || resolvedProvider?.authType === "none");
 
-    const credentials = await getProviderCredentials(provider, new Set(), model);
+    const credentials = isNoAuth ? null : await getProviderCredentials(provider, new Set(), model);
     if (!credentials && !isNoAuth) {
       log?.warn?.("COMBO", `smart-router: no credentials available for router provider "${provider}"`);
       return null;
