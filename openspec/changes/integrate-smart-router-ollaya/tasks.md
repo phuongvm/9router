@@ -20,7 +20,7 @@
 - [x] 3.1 Update `DEFAULT_SYSTEMONE_ROUTER_MODEL` in `open-sse/services/systemoneRouter.js` to `"ollaya/pplx-decider:flash-fp16"`.
 - [x] 3.2 Update `src/app/(dashboard)/dashboard/combos/page.js` default placeholder and status label to reflect Ollaya local readiness.
 - [x] 3.3 Execute full regression suites (`9ROUTER-INV-1..7`, baseline tests) via Vitest and verify all pass.
-- [ ] 3.4 Execute an end-to-end chat request through a Smart Router combo targeting Ollaya on LAN (`192.168.100.130:11435`) and verify decision in recent requests.
+- [x] 3.4 Execute an end-to-end chat request through a Smart Router combo targeting Ollaya on LAN (`192.168.100.130:11435`) and verify decision in recent requests.
 
 ## Workflow follow-up
 
