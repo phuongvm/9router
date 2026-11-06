@@ -24,6 +24,11 @@ const { default: REGISTRY } = await import("../../open-sse/providers/registry/in
 const { PROVIDER_MEDIA } = await import("../../open-sse/providers/index.js");
 const { getProvidersByKind } = await import("../../src/shared/constants/providers.js");
 const { handleSystemoneCore } = await import("../../open-sse/handlers/systemoneCore.js");
+const {
+  SYSTEMONE_FAILOVER,
+  SYSTEMONE_LOCAL_TIMEOUT_MS,
+  resolveSystemoneLocalTimeoutMs,
+} = await import("../../open-sse/config/systemoneConfig.js");
 
 console.log("=== Verifying Laya Provider in 9Router ===");
 
@@ -35,7 +40,13 @@ assert.strictEqual(entry.category, "apikey");
 assert.deepStrictEqual(entry.serviceKinds, ["systemone"]);
 assert.strictEqual(entry.authType, "none");
 assert.strictEqual(entry.noAuth, true);
-console.log("✓ Verified provider category, serviceKinds, and authType");
+assert.strictEqual(SYSTEMONE_LOCAL_TIMEOUT_MS, 5000);
+assert.strictEqual(SYSTEMONE_FAILOVER.laya.timeoutMs, 5000);
+assert.strictEqual(SYSTEMONE_FAILOVER.ollaya.timeoutMs, 5000);
+assert.strictEqual(resolveSystemoneLocalTimeoutMs("3500"), 3500);
+assert.strictEqual(resolveSystemoneLocalTimeoutMs("0"), 5000);
+assert.strictEqual(resolveSystemoneLocalTimeoutMs("invalid"), 5000);
+console.log("✓ Verified provider category, serviceKinds, authType, and 5000ms local timeout config");
 
 // 2. Verify PROVIDER_MEDIA registration
 const media = PROVIDER_MEDIA["laya"];
@@ -58,8 +69,8 @@ assert.ok(modelIds.includes("multilingual"), "Must contain model multilingual");
 assert.ok(modelIds.includes("typed-decisions"), "Must contain model typed-decisions");
 console.log(`✓ Verified 4 models in registry: ${modelIds.join(", ")}`);
 
-// 5. Verify Failover mechanics
-console.log("\n=== Testing Failover to OpenCode Zen on Connection Failure ===");
+// 5. Verify Failover mechanics & servedBy provenance
+console.log("\n=== Testing Failover to OpenCode Zen & AbortSignal Suppression ===");
 const originalFetch = global.fetch;
 let failoverTriggered = false;
 let warningLogged = false;
@@ -74,11 +85,9 @@ const mockLog = {
 
 try {
   global.fetch = async (url, options) => {
-    // If calling local laya endpoint, simulate connection failure
     if (url.includes("192.168.100.130") || url.includes(":8000")) {
       throw new Error("connect ECONNREFUSED 192.168.100.130:8000");
     }
-    // If calling opencode-zen fallback, succeed
     if (url.includes("opencode.ai/zen/v1/systemone")) {
       failoverTriggered = true;
       return new Response(
@@ -106,12 +115,43 @@ try {
   assert.strictEqual(res.success, true, "Failover request must succeed");
   assert.strictEqual(failoverTriggered, true, "Failover to opencode-zen must be called");
   assert.strictEqual(warningLogged, true, "Warning must be logged on failover");
+  assert.strictEqual(res.servedBy?.provider, "opencode-zen", "servedBy.provider must be opencode-zen");
+  assert.strictEqual(res.servedBy?.model, "jev-1.13-free", "servedBy.model must be jev-1.13-free");
+  assert.strictEqual(res.servedBy?.failover, true, "servedBy.failover must be true");
+  assert.strictEqual(res.servedBy?.failoverFrom?.provider, "laya", "failoverFrom.provider must be laya");
   assert.ok(res.responseBody, "Response body must be present");
   assert.strictEqual(res.usage?.prompt_tokens, 15, "Prompt tokens must match");
   assert.strictEqual(res.usage?.completion_tokens, 0, "Completion tokens must match");
   assert.strictEqual(res.usage?.total_tokens, 15, "Total tokens must match");
-  console.log("✓ Verified responseBody and normalized usage { prompt_tokens, completion_tokens, total_tokens }");
-  console.log("✓ Verified automated failover to opencode-zen on connection refusal");
+  console.log("✓ Verified responseBody, servedBy provenance, and normalized usage");
+
+  // Caller abort suppresses zombie failover
+  let abortFetchCount = 0;
+  let abortWarnCount = 0;
+  global.fetch = async (_url, options) => {
+    abortFetchCount += 1;
+    return new Promise((_, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    });
+  };
+  const abortController = new AbortController();
+  const abortPromise = handleSystemoneCore({
+    body: {
+      state: "Simulated caller abort",
+      questions: { test_q: { type: "noul", instructions: "Is this aborted?" } },
+    },
+    modelInfo: { provider: "laya", model: "laya-auto" },
+    credentials: null,
+    log: { warn: () => { abortWarnCount += 1; }, debug: () => {} },
+    signal: abortController.signal,
+  });
+  abortController.abort();
+  const abortRes = await abortPromise;
+  assert.strictEqual(abortRes.success, false, "Aborted request must not succeed");
+  assert.strictEqual(abortRes.aborted, true, "Aborted request must set aborted=true");
+  assert.strictEqual(abortFetchCount, 1, "Caller abort must not trigger failover fetch");
+  assert.strictEqual(abortWarnCount, 0, "Caller abort must not log failover warning");
+  console.log("✓ Verified caller AbortSignal suppresses zombie failover");
 } finally {
   global.fetch = originalFetch;
 }

@@ -15,10 +15,11 @@ import {
 /**
  * Dispatch an in-process System One decision evaluation for a combo request.
  * Resolves the configured router model's provider and credentials, sends the choice
- * query with a short timeout, and returns the parsed routing decision.
+ * query with a bounded AbortSignal, and returns the parsed routing decision.
  *
- * Never throws: on missing credentials, timeout, or upstream failure, returns null
- * so combo dispatch fails open to standard model ordering.
+ * Never throws: on missing credentials, timeout, caller disconnect, or upstream failure,
+ * cancels any in-flight System One fetch and returns null so combo dispatch fails open
+ * to standard model ordering.
  *
  * @param {object} opts
  * @param {object} opts.body - Client request body
@@ -26,6 +27,7 @@ import {
  * @param {string} [opts.routerModel] - System One router model (defaults to DEFAULT_SYSTEMONE_ROUTER_MODEL)
  * @param {object} [opts.log] - Logger
  * @param {number} [opts.timeoutMs=DEFAULT_SYSTEMONE_TIMEOUT_MS] - Hard ceiling for router evaluation
+ * @param {AbortSignal} [opts.signal] - Optional parent request AbortSignal
  * @returns {Promise<{ choice: string, confidence: number|null, probabilities: Record<string, number>|null } | null>}
  */
 export async function resolveSmartChoice({
@@ -34,8 +36,14 @@ export async function resolveSmartChoice({
   routerModel = DEFAULT_SYSTEMONE_ROUTER_MODEL,
   log,
   timeoutMs = DEFAULT_SYSTEMONE_TIMEOUT_MS,
+  signal,
 }) {
   if (!Array.isArray(models) || models.length <= 1) return null;
+
+  if (signal?.aborted) {
+    log?.warn?.("COMBO", "smart-router: evaluation aborted (Caller request aborted)");
+    return null;
+  }
 
   const targetModel = (typeof routerModel === "string" && routerModel.trim())
     ? routerModel.trim()
@@ -84,9 +92,38 @@ export async function resolveSmartChoice({
       },
     };
 
-    let timeoutId;
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error(`System One router timed out after ${timeoutMs}ms`)), timeoutMs);
+    const controller = new AbortController();
+    let timeoutId = null;
+    const onParentAbort = () => {
+      controller.abort(
+        signal?.reason instanceof Error
+          ? signal.reason
+          : new Error("Caller request aborted during Smart Router evaluation")
+      );
+    };
+
+    if (signal) {
+      if (signal.aborted) {
+        onParentAbort();
+      } else {
+        signal.addEventListener("abort", onParentAbort, { once: true });
+      }
+    }
+
+    const abortPromise = new Promise((_, reject) => {
+      const rejectAbort = () => {
+        const reason = controller.signal.reason;
+        reject(reason instanceof Error ? reason : new Error(String(reason || `System One router timed out after ${timeoutMs}ms`)));
+      };
+      if (controller.signal.aborted) {
+        rejectAbort();
+        return;
+      }
+      controller.signal.addEventListener("abort", rejectAbort, { once: true });
+      timeoutId = setTimeout(() => {
+        controller.abort(new Error(`System One router timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      timeoutId?.unref?.();
     });
 
     const start = Date.now();
@@ -96,13 +133,22 @@ export async function resolveSmartChoice({
       credentials: refreshedCredentials,
       log,
       onRequestSuccess: () => {},
+      signal: controller.signal,
     });
 
     let result;
     try {
-      result = await Promise.race([corePromise, timeoutPromise]);
+      result = await Promise.race([corePromise, abortPromise]);
     } finally {
-      clearTimeout(timeoutId);
+      if (timeoutId !== null) clearTimeout(timeoutId);
+      if (signal) signal.removeEventListener("abort", onParentAbort);
+    }
+
+    if (result?.aborted || controller.signal.aborted) {
+      const reason = controller.signal.reason;
+      throw reason instanceof Error
+        ? reason
+        : new Error(result?.error || `System One router timed out after ${timeoutMs}ms`);
     }
 
     if (!result?.success || !result.response) {
@@ -124,25 +170,44 @@ export async function resolveSmartChoice({
     // Persist telemetry only after validating the route: "success" means a usable decision.
     const status = route?.choice ? "success" : "error";
 
+    const servedProvider = result.servedBy?.provider || provider;
+    const servedModel = result.servedBy?.model || model;
+    const didFailover = Boolean(result.servedBy?.failover);
+    const effectiveConnectionId = didFailover ? undefined : refreshedCredentials?.connectionId;
+    const meta = didFailover
+      ? {
+          servedBy: `${servedProvider}/${servedModel}`,
+          failover: true,
+          requestedProvider: result.servedBy?.failoverFrom?.provider || provider,
+          requestedModel: result.servedBy?.failoverFrom?.model || model,
+          failoverReason: result.servedBy?.failoverFrom?.reason || null,
+        }
+      : {
+          servedBy: `${servedProvider}/${servedModel}`,
+          failover: false,
+        };
+
     saveRequestUsage({
-      provider,
-      model,
-      connectionId: refreshedCredentials?.connectionId,
+      provider: servedProvider,
+      model: servedModel,
+      connectionId: effectiveConnectionId,
       endpoint: "/internal/smart-router",
       tokens,
       status,
+      meta,
     }).catch(() => {});
 
     saveRequestDetail({
-      provider,
-      model,
-      connectionId: refreshedCredentials?.connectionId,
+      provider: servedProvider,
+      model: servedModel,
+      connectionId: effectiveConnectionId,
       timestamp: new Date().toISOString(),
       latency: { ttft: latencyMs, total: latencyMs },
       tokens,
       request: systemoneBody,
       response: json || {},
       status,
+      meta,
     }).catch(() => {});
 
     if (!route?.choice) {

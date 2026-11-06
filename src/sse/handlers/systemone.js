@@ -16,6 +16,68 @@ import { checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { saveRequestUsage, saveRequestDetail } from "@/lib/usageDb.js";
 import { AI_PROVIDERS } from "@/shared/constants/providers.js";
 
+function persistSystemoneTelemetry({
+  result,
+  requestedProvider,
+  requestedModel,
+  connectionId,
+  apiKey,
+  endpoint,
+  body,
+  start,
+}) {
+  const latencyMs = Date.now() - start;
+  const prompt_tokens = result.usage?.prompt_tokens ?? result.usage?.input_tokens ?? (body?.state ? Math.max(1, Math.ceil(body.state.length / 4)) : 1);
+  const completion_tokens = result.usage?.completion_tokens ?? result.usage?.output_tokens ?? 0;
+  const tokens = {
+    prompt_tokens,
+    completion_tokens,
+    total_tokens: prompt_tokens + completion_tokens,
+  };
+
+  const servedProvider = result.servedBy?.provider || requestedProvider;
+  const servedModel = result.servedBy?.model || requestedModel;
+  const didFailover = Boolean(result.servedBy?.failover);
+  const effectiveConnectionId = didFailover ? undefined : connectionId;
+  const meta = didFailover
+    ? {
+        servedBy: `${servedProvider}/${servedModel}`,
+        failover: true,
+        requestedProvider: result.servedBy?.failoverFrom?.provider || requestedProvider,
+        requestedModel: result.servedBy?.failoverFrom?.model || requestedModel,
+        failoverReason: result.servedBy?.failoverFrom?.reason || null,
+      }
+    : {
+        servedBy: `${servedProvider}/${servedModel}`,
+        failover: false,
+      };
+
+  saveRequestUsage({
+    provider: servedProvider,
+    model: servedModel,
+    connectionId: effectiveConnectionId,
+    apiKey,
+    endpoint,
+    tokens,
+    status: "success",
+    meta,
+  }).catch(() => {});
+
+  saveRequestDetail({
+    provider: servedProvider,
+    model: servedModel,
+    connectionId: effectiveConnectionId,
+    apiKey,
+    timestamp: new Date().toISOString(),
+    latency: { ttft: latencyMs, total: latencyMs },
+    tokens,
+    request: body,
+    response: result.responseBody || {},
+    status: "success",
+    meta,
+  }).catch(() => {});
+}
+
 /**
  * Handle System One (Jev) decision requests for the Next.js server.
  * Follows the same auth + account-fallback pattern as handleEmbeddings.
@@ -87,7 +149,7 @@ export async function handleSystemone(request) {
     log.info("ROUTING", `Provider: ${provider}, Model: ${model}`);
   }
 
-  // noAuth providers (e.g. local laya) — no stored connection/credentials needed
+  // noAuth providers (e.g. local laya / ollaya) — no stored connection/credentials needed
   const resolvedProvider = AI_PROVIDERS[provider];
   if (resolvedProvider?.noAuth || resolvedProvider?.authType === "none") {
     const start = Date.now();
@@ -96,38 +158,22 @@ export async function handleSystemone(request) {
       modelInfo: { provider, model },
       credentials: null,
       log,
+      signal: request?.signal,
     });
+    if (result.aborted || request?.signal?.aborted) {
+      return errorResponse(HTTP_STATUS.REQUEST_TIMEOUT, result.error || "System One request aborted");
+    }
     if (result.success) {
-      const latencyMs = Date.now() - start;
-      const prompt_tokens = result.usage?.prompt_tokens ?? result.usage?.input_tokens ?? (body?.state ? Math.max(1, Math.ceil(body.state.length / 4)) : 1);
-      const completion_tokens = result.usage?.completion_tokens ?? result.usage?.output_tokens ?? 0;
-      const tokens = {
-        prompt_tokens,
-        completion_tokens,
-        total_tokens: prompt_tokens + completion_tokens,
-      };
-
-      saveRequestUsage({
-        provider,
-        model,
+      persistSystemoneTelemetry({
+        result,
+        requestedProvider: provider,
+        requestedModel: model,
+        connectionId: undefined,
         apiKey,
         endpoint: url.pathname,
-        tokens,
-        status: "success",
-      }).catch(() => {});
-
-      saveRequestDetail({
-        provider,
-        model,
-        apiKey,
-        timestamp: new Date().toISOString(),
-        latency: { ttft: latencyMs, total: latencyMs },
-        tokens,
-        request: body,
-        response: result.responseBody || {},
-        status: "success",
-      }).catch(() => {});
-
+        body,
+        start,
+      });
       return result.response;
     }
     return errorResponse(result.status || HTTP_STATUS.BAD_GATEWAY, result.error || "System One request failed");
@@ -139,6 +185,10 @@ export async function handleSystemone(request) {
   let lastStatus = null;
 
   while (true) {
+    if (request?.signal?.aborted) {
+      return errorResponse(HTTP_STATUS.REQUEST_TIMEOUT, "System One request aborted");
+    }
+
     const credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
 
     // All accounts unavailable
@@ -167,44 +217,27 @@ export async function handleSystemone(request) {
       modelInfo: { provider, model },
       credentials: refreshedCredentials,
       log,
+      signal: request?.signal,
       onRequestSuccess: async () => {
         await clearAccountError(credentials.connectionId, credentials, model);
-      }
+      },
     });
 
-    if (result.success) {
-      const latencyMs = Date.now() - start;
-      const prompt_tokens = result.usage?.prompt_tokens ?? result.usage?.input_tokens ?? (body?.state ? Math.max(1, Math.ceil(body.state.length / 4)) : 1);
-      const completion_tokens = result.usage?.completion_tokens ?? result.usage?.output_tokens ?? 0;
-      const tokens = {
-        prompt_tokens,
-        completion_tokens,
-        total_tokens: prompt_tokens + completion_tokens,
-      };
+    if (result.aborted || request?.signal?.aborted) {
+      return errorResponse(HTTP_STATUS.REQUEST_TIMEOUT, result.error || "System One request aborted");
+    }
 
-      saveRequestUsage({
-        provider,
-        model,
+    if (result.success) {
+      persistSystemoneTelemetry({
+        result,
+        requestedProvider: provider,
+        requestedModel: model,
         connectionId: credentials.connectionId,
         apiKey,
         endpoint: url.pathname,
-        tokens,
-        status: "success",
-      }).catch(() => {});
-
-      saveRequestDetail({
-        provider,
-        model,
-        connectionId: credentials.connectionId,
-        apiKey,
-        timestamp: new Date().toISOString(),
-        latency: { ttft: latencyMs, total: latencyMs },
-        tokens,
-        request: body,
-        response: result.responseBody || {},
-        status: "success",
-      }).catch(() => {});
-
+        body,
+        start,
+      });
       return result.response;
     }
 

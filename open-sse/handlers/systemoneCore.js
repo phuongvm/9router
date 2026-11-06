@@ -5,8 +5,50 @@ import { getModelUpstreamId } from "../config/providerModels.js";
 import { generateSessionId } from "../executors/opencode-zen.js";
 import { SYSTEMONE_FAILOVER, SYSTEMONE_OPENCODE_PROVIDERS } from "../config/systemoneConfig.js";
 
+function createAttemptSignal(callerSignal, timeoutMs) {
+  const controller = new AbortController();
+  let timedOut = false;
+  let timer = null;
+
+  const onCallerAbort = () => {
+    controller.abort(callerSignal?.reason || new Error("System One request aborted by caller"));
+  };
+
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      onCallerAbort();
+    } else {
+      callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+    }
+  }
+
+  if (!controller.signal.aborted && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    timer = setTimeout(() => {
+      timedOut = true;
+      const err = new Error(`The operation was aborted due to timeout (${timeoutMs}ms)`);
+      err.name = "TimeoutError";
+      controller.abort(err);
+    }, timeoutMs);
+    timer?.unref?.();
+  }
+
+  return {
+    signal: controller.signal,
+    didTimeout: () => timedOut,
+    cleanup: () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (callerSignal) {
+        callerSignal.removeEventListener("abort", onCallerAbort);
+      }
+    },
+  };
+}
+
 // Take the configured next hop (config/systemoneConfig.js) for a failed local engine.
-function failover({ provider, reason, body, log, onRequestSuccess }) {
+function failover({ provider, model, reason, body, log, onRequestSuccess, signal, failoverFrom }) {
   const { label, next } = SYSTEMONE_FAILOVER[provider];
   log?.warn?.("SYSTEMONE", `Local ${label} ${reason}. Failing over to ${next.provider}/${next.model}`);
   return handleSystemoneCore({
@@ -15,6 +57,8 @@ function failover({ provider, reason, body, log, onRequestSuccess }) {
     credentials: next.credentials,
     log,
     onRequestSuccess,
+    signal,
+    failoverFrom: failoverFrom || { provider, model, reason },
   });
 }
 
@@ -40,7 +84,7 @@ export function buildSystemoneUrl(override, cfg) {
  * URL/headers come from the registry's systemoneConfig; body and JSON response
  * are forwarded untouched (decision models have no chat translation layer).
  *
- * @returns {Promise<{ success: boolean, response: Response, usage?: object, status?: number, error?: string }>}
+ * @returns {Promise<{ success: boolean, response: Response, usage?: object, servedBy?: object, aborted?: boolean, status?: number, error?: string }>}
  */
 export async function handleSystemoneCore({
   body,
@@ -48,6 +92,8 @@ export async function handleSystemoneCore({
   credentials,
   log,
   onRequestSuccess,
+  signal,
+  failoverFrom = null,
 }) {
   const { provider, model } = modelInfo;
   const cfg = PROVIDER_MEDIA[provider]?.systemoneConfig;
@@ -81,7 +127,15 @@ export async function handleSystemoneCore({
     return createErrorResult(HTTP_STATUS.BAD_REQUEST, "Missing required field: questions");
   }
 
-  // noAuth free lanes carry accessToken "public" from the credential stub.
+  if (signal?.aborted) {
+    log?.debug?.("SYSTEMONE", "Request aborted by caller before fetch");
+    return {
+      ...createErrorResult(HTTP_STATUS.REQUEST_TIMEOUT, "System One request aborted"),
+      aborted: true,
+    };
+  }
+
+  // noAuth free lanes carry accessToken from the credential stub.
   const token = credentials?.apiKey || credentials?.accessToken;
   const headers = {
     "Content-Type": "application/json",
@@ -95,28 +149,70 @@ export async function handleSystemoneCore({
 
   log?.debug?.("SYSTEMONE", `${provider.toUpperCase()} | ${model}`);
 
+  const failoverCfg = SYSTEMONE_FAILOVER[provider];
+  const providerTimeoutMs = failoverCfg?.timeoutMs ?? FETCH_CONNECT_TIMEOUT_MS;
+  const attempt = createAttemptSignal(signal, providerTimeoutMs);
+
   let providerResponse;
   try {
     providerResponse = await fetch(targetUrl, {
       method: "POST",
       headers,
       body: JSON.stringify(requestBody),
-      ...(typeof AbortSignal?.timeout === "function"
-        ? { signal: AbortSignal.timeout(FETCH_CONNECT_TIMEOUT_MS) }
-        : {}),
+      signal: attempt.signal,
     });
   } catch (error) {
-    if (SYSTEMONE_FAILOVER[provider]) {
-      return failover({ provider, reason: `unreachable at ${targetUrl} (${error.message})`, body, log, onRequestSuccess });
+    if (signal?.aborted) {
+      log?.debug?.("SYSTEMONE", "Request aborted by caller");
+      return {
+        ...createErrorResult(
+          HTTP_STATUS.REQUEST_TIMEOUT,
+          error?.message || "System One request aborted"
+        ),
+        aborted: true,
+      };
+    }
+    if (failoverCfg) {
+      const isTimeout = attempt.didTimeout() || error?.name === "TimeoutError";
+      const reason = isTimeout
+        ? `timed out after ${providerTimeoutMs}ms at ${targetUrl}`
+        : `unreachable at ${targetUrl} (${error.message})`;
+      return failover({
+        provider,
+        model,
+        reason,
+        body,
+        log,
+        onRequestSuccess,
+        signal,
+        failoverFrom,
+      });
     }
     const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
     log?.debug?.("SYSTEMONE", `Fetch error: ${errMsg}`);
     return createErrorResult(HTTP_STATUS.BAD_GATEWAY, errMsg);
+  } finally {
+    attempt.cleanup();
   }
 
   if (!providerResponse.ok) {
-    if (SYSTEMONE_FAILOVER[provider]?.statuses.includes(providerResponse.status)) {
-      return failover({ provider, reason: `returned status ${providerResponse.status}`, body, log, onRequestSuccess });
+    if (signal?.aborted) {
+      return {
+        ...createErrorResult(HTTP_STATUS.REQUEST_TIMEOUT, "System One request aborted"),
+        aborted: true,
+      };
+    }
+    if (failoverCfg?.statuses.includes(providerResponse.status)) {
+      return failover({
+        provider,
+        model,
+        reason: `returned status ${providerResponse.status}`,
+        body,
+        log,
+        onRequestSuccess,
+        signal,
+        failoverFrom,
+      });
     }
     const { statusCode, message } = await parseUpstreamError(providerResponse);
     const errMsg = formatProviderError(new Error(message), provider, model, statusCode);
@@ -143,6 +239,12 @@ export async function handleSystemoneCore({
       prompt_tokens,
       completion_tokens,
       total_tokens: prompt_tokens + completion_tokens,
+    },
+    servedBy: {
+      provider,
+      model,
+      failover: Boolean(failoverFrom),
+      ...(failoverFrom ? { failoverFrom } : {}),
     },
     response: new Response(JSON.stringify(responseBody), {
       headers: {
