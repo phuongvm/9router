@@ -13,18 +13,20 @@ afterEach(() => {
 
 describe("Nous OAuth refresh", () => {
   it("uses the Nous refresh-token protocol through refreshProviderCredentials", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({
-        access_token: "fresh-access",
-        refresh_token: "rotated-refresh",
-        expires_in: 3600,
-      }), { status: 200, headers: { "Content-Type": "application/json" } })
-    );
-    globalThis.fetch = fetchMock;
-
     const { refreshProviderCredentials } = await import(
       "../../open-sse/services/oauthCredentialManager.js"
     );
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({
+          access_token: "fresh-access",
+          refresh_token: "rotated-refresh",
+          expires_in: 3600,
+        }), { status: 200, headers: { "Content-Type": "application/json" } })
+      )
+    );
+    globalThis.fetch = fetchMock;
+
     const result = await refreshProviderCredentials("nous", {
       connectionId: "nous-refresh-test",
       refreshToken: "old-refresh",
