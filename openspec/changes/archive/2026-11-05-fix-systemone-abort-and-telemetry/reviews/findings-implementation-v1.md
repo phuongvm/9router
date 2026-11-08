@@ -7,10 +7,9 @@
 - **Reviewer runtime**: `cb-agent-reviewer` via `ai-router` (`hermes --profile reviewer status`, exit `0`)
 - **Review mode**: Round 1 cold diff, isolated Standards and Spec-fidelity axes, independent offline suite, and live Intel NUC re-verification.
 
-## Verdict
+## Verdict: **APPROVED**
 
-**APPROVED**
-
+- **Verdict**: APPROVED
 - **Blocking IDs**: None.
 - **Axis 1 — Standards / code quality / Fowler smells**: PASS; no Critical, Warning, or Info findings.
 - **Axis 2 — OpenSpec fidelity**: PASS; all seven delta requirements and their fourteen scenarios are implemented and independently exercised.
