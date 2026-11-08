@@ -159,6 +159,7 @@ const REFRESH_HANDLERS = {
   // Kimi Code OAuth (merged into id `kimi`); legacy id still routes here
   kimi: (c, log) => refreshKimiToken(c.refreshToken, c, log),
   "kimi-coding": (c, log) => refreshKimiToken(c.refreshToken, c, log),
+  // 9ROUTER-INV-1: Nous Research OAuth refresh handler
   nous: (c, log) => refreshNousToken(c.refreshToken, log),
   // MiniMax Code — single-use refresh tokens; the handler dedupes by token
   // value and classifies invalid_grant (docs/minimax-code-proxy-plan.md §2.3)

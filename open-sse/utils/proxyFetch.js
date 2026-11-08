@@ -537,8 +537,9 @@ async function patchedFetch(url, options = {}) {
   return proxyAwareFetch(url, options, null);
 }
 
-// Idempotency guard — only patch once to avoid wrapping multiple times
-if (globalThis.fetch !== patchedFetch) {
+// Idempotency guard — only patch once to avoid wrapping multiple times,
+// and avoid clobbering an active test mock set before dynamic module import.
+if (globalThis.fetch !== patchedFetch && !globalThis.fetch?.mock) {
   globalThis.fetch = patchedFetch;
 }
 
