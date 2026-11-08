@@ -10,6 +10,7 @@ import {
   NOUS_TOKEN_URL,
 } from "../../services/nous.js";
 
+// 9ROUTER-INV-1: Nous Research provider registry definition
 const nous = {
   id: "nous",
   priority: 250,
