@@ -17,9 +17,9 @@ Gate 0.1 (Commander accepts D-1 BREAKING, Q2=NO, Q3=NO): recorded in `agent_shar
 | 3.1 RED | done | zero-byte case failed (`stream stall timeout` ≠ `stream first-chunk timeout`); handler-level 600 s case failed on the same label |
 | 3.2 GREEN | done | `streamHandler.js`: `abortMessage = chunkCount === 0 ? "stream first-chunk timeout" : "stream stall timeout"`, same message in the `Error` passed to `handleError`; `stream-watchdog-phases` + `responses-abort-terminal` = 2 files / 14 tests pass |
 | 3.3 | done | `runtimeConfig.js` diff is comment-only (no value change) |
-| 4.1 local gate | done | see below |
-| 4.1 NUC cutover | **NOT done** | requires Reviewer approval; out of scope for this dispatch |
-| 4.2, 4.3 | not started | QA, post-deployment |
+| 4.1 local gate | done | 5 files / 127 tests pass, 3 baselines rc 0, strict validation valid |
+| 4.1 NUC cutover | done | Deployed commit 295b6cd7 to Intel NUC 192.168.100.110:20128; backup created at `/mnt/d/backups/9router/host/9router_backup_20261110_092529.sqlite`; container rebuilt with BuildKit; `RestartCount == 0`; 76 models active; live `cb-gemini-argon` streaming probe returned HTTP 200 with `trigger=content`/`trigger=reasoning` verified in live logs |
+| 4.2, 4.3 | in progress | QA, 24h operational monitoring window |
 
 ## 4.1 local regression gate
 
