@@ -21,6 +21,8 @@ export default {
   transport: {
     baseUrls: [ANTIGRAVITY_IDE_BASE_URL],
     format: "antigravity",
+    // Argon high-reasoning prefill can exceed the global 360s budget; stay below Hermes's 900s timer.
+    stallTimeoutMs: 600000,
     headers: {
       "User-Agent": ANTIGRAVITY_IDE_USER_AGENT,
     },

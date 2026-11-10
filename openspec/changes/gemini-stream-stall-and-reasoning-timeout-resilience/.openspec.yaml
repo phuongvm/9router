@@ -1,0 +1,7 @@
+schema: spec-driven
+created: 2026-11-09
+x-exploration:
+  canonical: openspec/workspace/explorations/2026-11-09-gemini-models-timeout-root-cause-exploration.md
+  mirrored: openspec/changes/gemini-stream-stall-and-reasoning-timeout-resilience/explorations/2026-11-09-gemini-models-timeout-root-cause-exploration.md
+  sha256: a8ae5f30d3618893ed3094a9ed1db5b9c325327008d035cfe878e5655efd5e8c
+  base-head: 0598f9f0

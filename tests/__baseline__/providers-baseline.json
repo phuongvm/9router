@@ -28,6 +28,7 @@
       "https://daily-cloudcode-pa.googleapis.com"
     ],
     "format": "antigravity",
+    "stallTimeoutMs": 600000,
     "headers": {
       "User-Agent": "antigravity/hub/2.24.0 darwin/arm64"
     },
