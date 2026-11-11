@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo } from "react";
+import { applyQoderModelNames } from "@/shared/utils/providerCustomModels";
 import PropTypes from "prop-types";
 import { Card, Button, Modal } from "@/shared/components";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
@@ -255,8 +256,11 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
     const dynamicModels = matchingSuggestedModels.filter(
       (model) => !builtInModels.some((builtIn) => builtIn.id === model.id)
     );
-    return [...builtInModels, ...dynamicModels];
-  }, [builtInModels, kindFilter, suggestedModels]);
+    if (providerAlias !== "qd" && providerAlias !== "qdcn") {
+      return [...builtInModels, ...dynamicModels];
+    }
+    return applyQoderModelNames([...builtInModels, ...dynamicModels], customModels, providerAlias);
+  }, [builtInModels, customModels, kindFilter, providerAlias, suggestedModels]);
 
   useEffect(() => {
     onModelsChange?.(displayModels);
@@ -268,7 +272,6 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
       && getModelKind(m, "llm") === effectiveType
       && !builtInModels.some((b) => b.id === m.id)
   );
-
   return (
     <>
       <Card>
