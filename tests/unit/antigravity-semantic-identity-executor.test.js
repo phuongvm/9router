@@ -64,8 +64,9 @@ describe("Antigravity semantic identity executor integration", () => {
 
     const result = transform(body);
 
-    expect(result.request.systemInstruction.parts[0].text).toBe(replacement + suffix);
-    expect(result.request.systemInstruction.parts[1]).toEqual(snapshot.request.systemInstruction.parts[1]);
+    expect(result.request.systemInstruction.parts[0].text).toContain("You are Antigravity");
+    expect(result.request.systemInstruction.parts[1].text).toBe(replacement + suffix);
+    expect(result.request.systemInstruction.parts[2]).toEqual(snapshot.request.systemInstruction.parts[1]);
     expect(body).toEqual(snapshot);
   });
 
@@ -102,13 +103,15 @@ describe("Antigravity semantic identity executor integration", () => {
     });
   });
 
-  it("preserves an absent systemInstruction without adding an undefined property", () => {
+  it("handles an absent systemInstruction by injecting only the Antigravity identity without mutating caller input", () => {
     const body = makeBody(HERMES);
     delete body.request.systemInstruction;
 
     const result = transform(body);
 
-    expect(Object.hasOwn(result.request, "systemInstruction")).toBe(false);
+    expect(Object.hasOwn(body.request, "systemInstruction")).toBe(false);
+    expect(result.request.systemInstruction?.parts).toHaveLength(1);
+    expect(result.request.systemInstruction.parts[0].text).toContain("You are Antigravity");
   });
 
   it("does not apply semantic identity policy to the Antigravity image path", () => {
