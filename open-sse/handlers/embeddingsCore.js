@@ -5,6 +5,32 @@ import { refreshWithRetry } from "../services/tokenRefresh.js";
 import { getEmbeddingAdapter } from "./embeddingProviders/index.js";
 import { PROVIDER_ID_TO_ALIAS, getModelParams } from "../config/providerModels.js";
 import { resolveInputType } from "../config/embeddingParams.js";
+import { proxyAwareFetch } from "../utils/proxyFetch.js";
+
+function buildEmbeddingProxyOptions(credentials) {
+  const psd = credentials?.providerSpecificData;
+  return {
+    connectionProxyEnabled: psd?.connectionProxyEnabled === true,
+    connectionProxyUrl: psd?.connectionProxyUrl || "",
+    connectionNoProxy: psd?.connectionNoProxy || "",
+    vercelRelayUrl: psd?.vercelRelayUrl || "",
+    proxyPoolId: psd?.connectionProxyPoolId || null,
+    strictProxy: psd?.strictProxy === true,
+  };
+}
+
+function shouldUseProxyFetch(proxyOptions) {
+  return Boolean(
+    proxyOptions.vercelRelayUrl ||
+    (proxyOptions.connectionProxyEnabled && proxyOptions.connectionProxyUrl) ||
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy ||
+    process.env.ALL_PROXY ||
+    process.env.all_proxy
+  );
+}
 
 /**
  * Resolve `input_type` for models that declare it (registry `models[].params`).
@@ -77,9 +103,15 @@ export async function handleEmbeddingsCore({
 
   log?.debug?.("EMBEDDINGS", `${provider.toUpperCase()} | ${model} | input=${Array.isArray(input) ? `array[${input.length}]` : "string"}${inputType ? ` | input_type=${inputType}` : ""}`);
 
+  const proxyOptions = buildEmbeddingProxyOptions(credentials);
+  const useProxy = shouldUseProxyFetch(proxyOptions);
+  const doFetch = (targetUrl, init) => (
+    useProxy ? proxyAwareFetch(targetUrl, init, proxyOptions) : fetch(targetUrl, init)
+  );
+
   let providerResponse;
   try {
-    providerResponse = await fetch(url, {
+    providerResponse = await doFetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(requestBody),
@@ -101,7 +133,7 @@ export async function handleEmbeddingsCore({
       providerResponse.status === HTTP_STATUS.FORBIDDEN)
   ) {
     const newCredentials = await refreshWithRetry(
-      () => executor.refreshCredentials(credentials, log),
+      () => executor.refreshCredentials(credentials, log, proxyOptions),
       3,
       log
     );
@@ -114,7 +146,7 @@ export async function handleEmbeddingsCore({
       try {
         const retryHeaders = adapter.buildHeaders(credentials, ctx);
         const retryUrl = adapter.buildUrl(model, credentials, ctx);
-        providerResponse = await fetch(retryUrl, {
+        providerResponse = await doFetch(retryUrl, {
           method: "POST",
           headers: retryHeaders,
           body: JSON.stringify(requestBody),

@@ -28,9 +28,11 @@ vi.mock("../../open-sse/services/tokenRefresh.js", () => ({
 // Mock proxyFetch to avoid proxy-agent imports in test env
 vi.mock("../../open-sse/utils/proxyFetch.js", () => ({
   default: vi.fn(),
+  proxyAwareFetch: vi.fn(),
 }));
 
 import { handleEmbeddingsCore } from "../../open-sse/handlers/embeddingsCore.js";
+import { proxyAwareFetch } from "../../open-sse/utils/proxyFetch.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -834,5 +836,89 @@ describe("handleEmbeddingsCore — input_type", () => {
     }));
 
     expect("input_type" in sentBody()).toBe(false);
+  });
+});
+
+// ─── Test: proxy routing ─────────────────────────────────────────────────────
+
+describe("handleEmbeddingsCore — proxy routing", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+    vi.mocked(proxyAwareFetch).mockReset();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("routes via proxyAwareFetch when connectionProxyEnabled and connectionProxyUrl are set", async () => {
+    vi.mocked(proxyAwareFetch).mockResolvedValueOnce(makeProviderResponse(VALID_EMBEDDING_RESPONSE));
+
+    const result = await handleEmbeddingsCore(makeOptions({
+      modelInfo: { provider: "openrouter", model: "perplexity/pplx-embed-v1-0.6b" },
+      credentials: {
+        apiKey: "sk-or-test",
+        providerSpecificData: {
+          connectionProxyEnabled: true,
+          connectionProxyUrl: "http://10.8.0.1:3128",
+          connectionNoProxy: "localhost",
+          connectionProxyPoolId: "pool-sg-1",
+          strictProxy: true,
+        },
+      },
+    }));
+
+    expect(result.success).toBe(true);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(vi.mocked(proxyAwareFetch)).toHaveBeenCalledOnce();
+    const [url, init, proxyOptions] = vi.mocked(proxyAwareFetch).mock.calls[0];
+    expect(url).toBe("https://openrouter.ai/api/v1/embeddings");
+    expect(init.method).toBe("POST");
+    expect(proxyOptions).toEqual({
+      connectionProxyEnabled: true,
+      connectionProxyUrl: "http://10.8.0.1:3128",
+      connectionNoProxy: "localhost",
+      vercelRelayUrl: "",
+      proxyPoolId: "pool-sg-1",
+      strictProxy: true,
+    });
+  });
+
+  it("routes via proxyAwareFetch when vercelRelayUrl is configured", async () => {
+    vi.mocked(proxyAwareFetch).mockResolvedValueOnce(makeProviderResponse(VALID_EMBEDDING_RESPONSE));
+
+    const result = await handleEmbeddingsCore(makeOptions({
+      modelInfo: { provider: "openrouter", model: "perplexity/pplx-embed-v1-0.6b" },
+      credentials: {
+        apiKey: "sk-or-test",
+        providerSpecificData: {
+          vercelRelayUrl: "https://relay.example.com",
+        },
+      },
+    }));
+
+    expect(result.success).toBe(true);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(vi.mocked(proxyAwareFetch)).toHaveBeenCalledOnce();
+    const [, , proxyOptions] = vi.mocked(proxyAwareFetch).mock.calls[0];
+    expect(proxyOptions.vercelRelayUrl).toBe("https://relay.example.com");
+  });
+
+  it("uses direct fetch when connectionProxyEnabled is false and no relay is set", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(makeProviderResponse(VALID_EMBEDDING_RESPONSE));
+
+    const result = await handleEmbeddingsCore(makeOptions({
+      modelInfo: { provider: "openrouter", model: "perplexity/pplx-embed-v1-0.6b" },
+      credentials: {
+        apiKey: "sk-or-test",
+        providerSpecificData: {
+          connectionProxyEnabled: false,
+          connectionProxyUrl: "http://10.8.0.1:3128",
+        },
+      },
+    }));
+
+    expect(result.success).toBe(true);
+    expect(vi.mocked(proxyAwareFetch)).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
   });
 });
